@@ -1,18 +1,18 @@
 # takumi-render-uniffi
 
-### Rust 核心测试
+### Rust 测试
 
 ```text
 cargo test --manifest-path bindings/takumi-render-uniffi/Cargo.toml
 ```
 
-### C# smoke
+### C# 测试
 
 ```text
 dotnet test bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI.Tests/Takumi.Render.UniFFI.Tests.csproj
 ```
 
-### JVM / Java smoke
+### jvm 测试
 
 ```text
 gradle -p bindings/takumi-render-uniffi/jvm test
