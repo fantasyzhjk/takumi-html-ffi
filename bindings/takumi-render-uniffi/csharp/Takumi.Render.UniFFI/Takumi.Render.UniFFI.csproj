@@ -15,8 +15,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PythonCommand Condition="'$(OS)' == 'Windows_NT'">py -3</PythonCommand>
-    <PythonCommand Condition="'$(OS)' != 'Windows_NT'">python3</PythonCommand>
+    <PythonCommand>python3</PythonCommand>
   </PropertyGroup>
 
   <ItemGroup>
