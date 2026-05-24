@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Takumi.Render.UniFFI</AssemblyName>
+    <RootNamespace>Takumi.Render.UniFFI</RootNamespace>
+    <PackageId>Takumi.Render.UniFFI</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Takumi HTML renderer packaged as a standalone C# library with embedded native resources.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <NoWarn>$(NoWarn);CA2255</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PythonCommand Condition="'$(OS)' == 'Windows_NT'">py -3</PythonCommand>
+    <PythonCommand Condition="'$(OS)' != 'Windows_NT'">python3</PythonCommand>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Generated/Native/**/*.*" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="PrepareTakumiRenderBindings" BeforeTargets="BeforeCompile">
+    <Exec
+      Command="$(PythonCommand) ../../scripts/prepare_packaged_bindings.py --language csharp --project-dir &quot;$(MSBuildProjectDirectory)&quot;"
+      WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+</Project>

@@ -1,0 +1,14 @@
+.cargo-tools/
+.tools/
+.tmp/
+examples/generated/
+__pycache__/
+
+csharp/**/Generated/
+csharp/**/bin/
+csharp/**/obj/
+
+jvm/Generated/
+jvm/.gradle/
+jvm/build/
+

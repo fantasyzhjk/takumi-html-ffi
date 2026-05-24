@@ -1,0 +1,1 @@
+rootProject.name = "takumi-render-uniffi-jvm"
