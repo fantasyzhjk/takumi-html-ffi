@@ -12,3 +12,4 @@ jvm/Generated/
 jvm/.gradle/
 jvm/build/
 
+/examples
