@@ -6,6 +6,7 @@ public enum ImageFormat
 {
     Png,
     WebP,
+    Jpeg,
 }
 
 public sealed record RenderSize(uint Width, uint Height)
@@ -114,6 +115,7 @@ internal static class ImageFormatExtensions
     {
         ImageFormat.Png => Generated.ImageFormat.Png,
         ImageFormat.WebP => Generated.ImageFormat.WebP,
+        ImageFormat.Jpeg => Generated.ImageFormat.Jpeg,
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
     };
 
@@ -121,6 +123,7 @@ internal static class ImageFormatExtensions
     {
         Generated.ImageFormat.Png => ImageFormat.Png,
         Generated.ImageFormat.WebP => ImageFormat.WebP,
+        Generated.ImageFormat.Jpeg => ImageFormat.Jpeg,
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
     };
 }

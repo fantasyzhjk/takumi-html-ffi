@@ -1,0 +1,148 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-native:
+    name: Build Native (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact-name: linux-x64
+            lib-name: libtakumi_render_uniffi.so
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact-name: linux-arm64
+            lib-name: libtakumi_render_uniffi.so
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact-name: win-x64
+            lib-name: takumi_render_uniffi.dll
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact-name: win-arm64
+            lib-name: takumi_render_uniffi.dll
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact-name: osx-x64
+            lib-name: libtakumi_render_uniffi.dylib
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact-name: osx-arm64
+            lib-name: libtakumi_render_uniffi.dylib
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Install Cross-Compiler (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --manifest-path bindings/takumi-render-uniffi/Cargo.toml --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.artifact-name }}
+          path: bindings/takumi-render-uniffi/target/${{ matrix.target }}/release/${{ matrix.lib-name }}
+
+  package:
+    name: Package (C# & JVM)
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install uniffi-bindgen-cs
+        run: cargo install uniffi-bindgen-cs
+      
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: native-libs
+          pattern: native-*
+          merge-multiple: false
+          
+      - name: Organize artifacts for Python script
+        run: |
+          PROJECT_ROOT="bindings/takumi-render-uniffi"
+          mkdir -p $PROJECT_ROOT/target/release
+          
+          # Map artifact names to target triples
+          declare -A mapping=(
+            ["linux-x64"]="x86_64-unknown-linux-gnu"
+            ["linux-arm64"]="aarch64-unknown-linux-gnu"
+            ["win-x64"]="x86_64-pc-windows-msvc"
+            ["win-arm64"]="aarch64-pc-windows-msvc"
+            ["osx-x64"]="x86_64-apple-darwin"
+            ["osx-arm64"]="aarch64-apple-darwin"
+          )
+          
+          # Host library (for uniffi-bindgen to extract metadata)
+          # We use the linux-x64 artifact since we are on Ubuntu
+          cp native-libs/native-linux-x64/libtakumi_render_uniffi.so $PROJECT_ROOT/target/release/
+          
+          for art in "${!mapping[@]}"; do
+            triple="${mapping[$art]}"
+            mkdir -p $PROJECT_ROOT/target/$triple/release
+            cp native-libs/native-$art/* $PROJECT_ROOT/target/$triple/release/
+          done
+
+      - name: Build C# Library
+        run: |
+          # The script will try to build the host library, which is fine as it's already there
+          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
+            --language csharp \
+            --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
+          dotnet build bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
+          
+      - name: Build JVM Library
+        run: |
+          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
+            --language kotlin \
+            --project-dir bindings/takumi-render-uniffi/jvm
+          chmod +x bindings/takumi-render-uniffi/jvm/gradlew
+          ./bindings/takumi-render-uniffi/jvm/gradlew -p bindings/takumi-render-uniffi/jvm jar
+          
+      - name: Upload Packaged Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-bindings
+          path: |
+            bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.nupkg
+            bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.dll
+            bindings/takumi-render-uniffi/jvm/build/libs/*.jar

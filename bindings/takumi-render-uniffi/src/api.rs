@@ -4,6 +4,7 @@ use takumi::rendering::ImageOutputFormat;
 pub enum ImageFormat {
     Png,
     WebP,
+    Jpeg
 }
 
 impl ImageFormat {
@@ -11,6 +12,7 @@ impl ImageFormat {
         match self {
             Self::Png => ImageOutputFormat::Png,
             Self::WebP => ImageOutputFormat::WebP,
+            Self::Jpeg => ImageOutputFormat::Jpeg,
         }
     }
 

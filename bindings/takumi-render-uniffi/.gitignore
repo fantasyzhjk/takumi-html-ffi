@@ -1,6 +1,7 @@
 .cargo-tools/
 .tools/
 .tmp/
+.idea/
 examples/generated/
 __pycache__/
 

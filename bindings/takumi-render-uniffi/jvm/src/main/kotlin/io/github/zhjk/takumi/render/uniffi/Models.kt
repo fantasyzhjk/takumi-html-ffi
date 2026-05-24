@@ -9,17 +9,20 @@ import io.github.zhjk.takumi.render.uniffi.generated.RendererException as Genera
 enum class ImageFormat {
     PNG,
     WEBP,
+    JPEG,
     ;
 
     internal fun toGenerated(): GeneratedImageFormat = when (this) {
         PNG -> GeneratedImageFormat.PNG
         WEBP -> GeneratedImageFormat.WEB_P
+        JPEG -> GeneratedImageFormat.JPEG
     }
 
     companion object {
         internal fun fromGenerated(value: GeneratedImageFormat): ImageFormat = when (value) {
             GeneratedImageFormat.PNG -> PNG
             GeneratedImageFormat.WEB_P -> WEBP
+            GeneratedImageFormat.JPEG -> JPEG
         }
     }
 }

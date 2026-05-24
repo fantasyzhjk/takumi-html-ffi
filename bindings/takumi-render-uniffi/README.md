@@ -25,9 +25,7 @@ gradle -p bindings/takumi-render-uniffi/jvm test
 1. 生成 C# 绑定和 native 资源：
 
 ```text
-python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
-  --language csharp \
-  --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
+python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
 ```
 
 2. 构建 C# 库：
@@ -51,9 +49,7 @@ dotnet build bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Re
 1. 先生成 Kotlin 绑定和 native 资源：
 
 ```text
-python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
-  --language kotlin \
-  --project-dir bindings/takumi-render-uniffi/jvm
+python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
 ```
 
 2. 构建 jar：
