@@ -13,11 +13,7 @@ repositories {
     mavenCentral()
 }
 
-val pythonCommand = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-    listOf("py", "-3")
-} else {
-    listOf("python3")
-}
+val pythonCommand = listOf("python3")
 
 val generateTakumiBindings by tasks.registering(Exec::class) {
     workingDir = projectDir
