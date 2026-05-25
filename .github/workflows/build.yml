@@ -73,7 +73,7 @@ jobs:
   package:
     name: Package (C# & JVM)
     needs: build-native
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       
@@ -110,53 +110,37 @@ jobs:
           merge-multiple: false
           
       - name: Organize artifacts for Python script
+        shell: pwsh
         run: |
-          PROJECT_ROOT="bindings/takumi-render-uniffi"
-          mkdir -p $PROJECT_ROOT/target/release
+          $PROJECT_ROOT = "bindings/takumi-render-uniffi"
+          New-Item -ItemType Directory -Force -Path "$PROJECT_ROOT/target/release"
           
-          declare -A mapping=(
-            ["linux-x64"]="x86_64-unknown-linux-gnu"
-            ["linux-arm64"]="aarch64-unknown-linux-gnu"
-            ["win-x64"]="x86_64-pc-windows-msvc"
-            ["win-arm64"]="aarch64-pc-windows-msvc"
-            ["osx-x64"]="x86_64-apple-darwin"
-            ["osx-arm64"]="aarch64-apple-darwin"
-          )
+          $mapping = @{
+            "linux-x64"  = "x86_64-unknown-linux-gnu"
+            "linux-arm64" = "aarch64-unknown-linux-gnu"
+            "win-x64"    = "x86_64-pc-windows-msvc"
+            "win-arm64"  = "aarch64-pc-windows-msvc"
+            "osx-x64"    = "x86_64-apple-darwin"
+            "osx-arm64"  = "aarch64-apple-darwin"
+          }
 
-          cp native-libs/native-linux-x64/libtakumi_render_uniffi.so $PROJECT_ROOT/target/release/
-          
-          for art in "${!mapping[@]}"; do
-            triple="${mapping[$art]}"
-            mkdir -p $PROJECT_ROOT/target/$triple/release
-            cp native-libs/native-$art/* $PROJECT_ROOT/target/$triple/release/
-          done
+          Copy-Item "native-libs/native-win-x64/takumi_render_uniffi.dll" "$PROJECT_ROOT/target/release/"
 
-      - name: Debug uniffi-bindgen-cs direct
-        run: |
-          uniffi-bindgen-cs --version
-          ldd bindings/takumi-render-uniffi/target/release/libtakumi_render_uniffi.so
-          mkdir -p /tmp/test-bindgen
-          uniffi-bindgen-cs \
-            --library bindings/takumi-render-uniffi/target/release/libtakumi_render_uniffi.so \
-            --config bindings/takumi-render-uniffi/uniffi.toml \
-            --out-dir /tmp/test-bindgen
-          echo "exit: $?"
-          ls -la /tmp/test-bindgen/
+          foreach ($art in $mapping.Keys) {
+            $triple = $mapping[$art]
+            New-Item -ItemType Directory -Force -Path "$PROJECT_ROOT/target/$triple/release"
+            Copy-Item "native-libs/native-$art/*" "$PROJECT_ROOT/target/$triple/release/"
+          }
 
       - name: Build C# Library
         run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
-            --language csharp \
-            --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
+          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
           dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
       
       - name: Build JVM Library
         run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
-            --language kotlin \
-            --project-dir bindings/takumi-render-uniffi/jvm
-          chmod +x bindings/takumi-render-uniffi/jvm/gradlew
-          ./bindings/takumi-render-uniffi/jvm/gradlew -p bindings/takumi-render-uniffi/jvm jar
+          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
+          bindings/takumi-render-uniffi/jvm/gradlew.bat -p bindings/takumi-render-uniffi/jvm jar
           
       - name: Upload Packaged Artifacts
         uses: actions/upload-artifact@v4
