@@ -6,3 +6,4 @@ examples/**
 !examples/assets/markdownBlogPost/**
 !examples/assets/jinjaMarkdownArticle/
 !examples/assets/jinjaMarkdownArticle/**
+!examples/assets/markdown-base.scss

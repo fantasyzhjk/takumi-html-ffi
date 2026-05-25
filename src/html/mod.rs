@@ -126,6 +126,9 @@ pub enum HtmlError {
         value: String,
         reason: String,
     },
+    StylesheetCompilationFailed {
+        reason: String,
+    },
 }
 
 impl fmt::Display for HtmlError {
@@ -155,6 +158,9 @@ impl fmt::Display for HtmlError {
                     f,
                     "failed to parse inline style on <{tag_name}>: `{value}` ({reason})"
                 )
+            }
+            Self::StylesheetCompilationFailed { reason } => {
+                write!(f, "failed to compile stylesheet ({reason})")
             }
         }
     }
@@ -263,7 +269,8 @@ mod tests {
     fn extracts_stylesheets() {
         let result = from_html("<style>body { color: red; }</style><div>Ready</div>").unwrap();
 
-        assert_eq!(result.stylesheets, vec!["body { color: red; }".to_string()]);
+        assert!(result.stylesheets[0].contains("body"));
+        assert!(result.stylesheets[0].contains("color: red"));
         assert_eq!(result.node.to_html(), "<div>Ready</div>");
     }
 
@@ -294,10 +301,8 @@ mod tests {
 		)
 		.unwrap();
 
-        assert_eq!(
-            result.stylesheets,
-            vec!["body { background-color: red; }".to_string()]
-        );
+        assert!(result.stylesheets[0].contains("body"));
+        assert!(result.stylesheets[0].contains("background-color: red"));
         assert_eq!(
             result.node.to_html(),
             r#"<html><body><div class="message">Ready</div></body></html>"#
@@ -308,13 +313,11 @@ mod tests {
     fn stylesheet_sources_with_preserve_external_then_extracted_order() {
         let result = from_html("<style>.inline { color: blue; }</style><div>Ready</div>").unwrap();
 
-        assert_eq!(
-            result.stylesheet_sources_with([".external { color: red; }"]),
-            vec![
-                ".external { color: red; }".to_string(),
-                ".inline { color: blue; }".to_string(),
-            ]
-        );
+        let sources = result.stylesheet_sources_with([".external { color: red; }"]);
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0], ".external { color: red; }");
+        assert!(sources[1].contains(".inline"));
+        assert!(sources[1].contains("color: blue"));
     }
 
     #[test]
@@ -336,18 +339,14 @@ mod tests {
             .with_base_path(temp.path())
             .load_linked_stylesheets(true);
         let result = from_document_with_options(
-			r#"<!doctype html><html><head><link rel="stylesheet" href="linked.css"><style>.inline { color: blue; }</style></head><body><div>Ready</div></body></html>"#,
-			&options,
-		)
-		.unwrap();
+            r#"<!doctype html><html><head><link rel="stylesheet" href="linked.css"><style>.inline { color: blue; }</style></head><body><div>Ready</div></body></html>"#,
+            &options,
+        )
+        .unwrap();
 
-        assert_eq!(
-            result.stylesheets,
-            vec![
-                ".external { color: red; }".to_string(),
-                ".inline { color: blue; }".to_string(),
-            ]
-        );
+        assert_eq!(result.stylesheets.len(), 2);
+        assert!(result.stylesheets[0].contains(".external"));
+        assert!(result.stylesheets[1].contains(".inline"));
     }
 
     #[test]
@@ -538,6 +537,59 @@ mod tests {
         let rendered = result.node.to_html();
         assert!(rendered.contains("background-image"));
         assert!(rendered.contains(&expected));
+    }
+
+    #[test]
+    fn compiles_inline_scss() {
+        let result =
+            from_html(r#"<style lang="scss">$color: red; .foo { color: $color; }</style>"#).unwrap();
+        assert!(result.stylesheets[0].contains("color: red"));
+    }
+
+    #[test]
+    fn resolves_scss_import_in_inline_style() {
+        let temp = tempdir();
+        write(temp.path().join("_vars.scss"), "$color: blue;");
+
+        let options = FromHtmlOptions::new().with_base_path(temp.path());
+        let result = from_document_with_options(
+            r#"<style lang="scss">@import "vars"; .foo { color: $color; }</style>"#,
+            &options,
+        )
+        .unwrap();
+
+        assert!(result.stylesheets[0].contains("color: blue"));
+    }
+
+    #[test]
+    fn resolves_css_import_in_linked_stylesheet() {
+        let temp = tempdir();
+        write(temp.path().join("base.scss"), ".base { color: green; }");
+        write(
+            temp.path().join("linked.css"),
+            "@import 'base'; .foo { color: black; }",
+        );
+
+        let options = FromHtmlOptions::new()
+            .with_base_path(temp.path())
+            .load_linked_stylesheets(true);
+        let result = from_document_with_options(
+            r#"<html><head><link rel="stylesheet" href="linked.css"></head></html>"#,
+            &options,
+        )
+        .unwrap();
+
+        assert!(result.stylesheets[0].contains(".base"));
+        assert!(result.stylesheets[0].contains("color: green"));
+    }
+
+    #[test]
+    fn reports_scss_compilation_error() {
+        let result = from_html(r#"<style lang="scss">.foo { color: $missing; }</style>"#);
+        assert!(matches!(
+            result,
+            Err(HtmlError::StylesheetCompilationFailed { .. })
+        ));
     }
 
     #[test]

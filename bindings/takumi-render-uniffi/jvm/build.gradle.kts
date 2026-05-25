@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "io.github.zhjk.takumi"
-version = "0.2.0"
+version = "0.2.1"
 
 repositories {
     mavenCentral()

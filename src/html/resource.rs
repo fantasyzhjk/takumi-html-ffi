@@ -80,6 +80,17 @@ impl<'a> AssetResolver<'a> {
             reason: error.to_string(),
         })?;
 
+        let mut opts = grass::Options::default();
+        if let Some(parent) = path.parent() {
+            opts = opts.load_path(parent);
+        }
+
+        let stylesheet = grass::from_string(stylesheet, &opts).map_err(|error| {
+            HtmlError::StylesheetCompilationFailed {
+                reason: error.to_string(),
+            }
+        })?;
+
         if matches!(self.options.effective_local_asset_mode(), LocalAssetMode::Preserve) {
             return Ok(Some(stylesheet));
         }

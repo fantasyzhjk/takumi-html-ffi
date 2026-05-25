@@ -96,9 +96,20 @@ fn convert_element(
 
     if element.tag_name == "style" {
         let stylesheet = collect_direct_text(&element.children);
-        let stylesheet = asset_resolver.resolve_inline_stylesheet(&stylesheet)?;
         if !stylesheet.is_empty() {
-            stylesheets.push(stylesheet);
+            let mut opts = grass::Options::default();
+            if let Some(base_path) = options.base_path.as_deref() {
+                opts = opts.load_path(base_path);
+            }
+            let stylesheet = grass::from_string(stylesheet, &opts).map_err(|error| {
+                HtmlError::StylesheetCompilationFailed {
+                    reason: error.to_string(),
+                }
+            })?;
+            let stylesheet = asset_resolver.resolve_inline_stylesheet(&stylesheet)?;
+            if !stylesheet.is_empty() {
+                stylesheets.push(stylesheet);
+            }
         }
         return Ok(None);
     }

@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.scss" />
 
 ![Cover image]({{ cover_src }})
 
