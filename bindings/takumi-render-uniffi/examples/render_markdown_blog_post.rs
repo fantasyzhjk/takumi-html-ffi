@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let request = RenderRequest {
         context_json: None,
         viewport: RenderSize {
-            width: 1280,
-            height: 720,
+            width: 1200,
+            height: 800,
         },
         format: ImageFormat::Png,
         input: RenderInput {

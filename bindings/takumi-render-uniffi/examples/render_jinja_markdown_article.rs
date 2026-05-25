@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let request = RenderRequest {
         context_json: Some(sample_context().to_string()),
         viewport: RenderSize {
-            width: 1280,
-            height: 720,
+            width: 1200,
+            height: 800,
         },
         format: ImageFormat::Png,
         input: RenderInput {
@@ -63,6 +63,6 @@ fn sample_context() -> serde_json::Value {
             "`context_json` is `Some(json)` only when the template needs variables.",
             "Relative assets still resolve from the template directory."
         ],
-        "code_sample": "context_json = Some(json)\ncontent_kind = JinjaMarkdown\nvalue = \"index.jinja.md\""
+        "code_sample": "println!(\"Hello, world!\"); // This is a Rust code snippet inside the Markdown content.",
     })
 }

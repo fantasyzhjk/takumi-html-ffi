@@ -19,6 +19,6 @@ _By {{ author_name }} · {{ published_at }}_
 
 ## Build snippet
 
-```text
+```rust
 {{ code_sample }}
 ```

@@ -22,7 +22,8 @@ Step 2 — Render `index.md` as `RenderContentKind::Markdown`
 
 Step 3 — Write the output image to disk
 
-```text
-context_json = None
-value = "index.md"
+```python
+print("Hello, world!")
+for i in range(10):
+    print(i)
 ```
