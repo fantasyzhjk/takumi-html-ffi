@@ -131,9 +131,10 @@ jobs:
 
       - name: Debug uniffi-bindgen-cs direct
         run: |
+          uniffi-bindgen-cs --version
+          ldd bindings/takumi-render-uniffi/target/release/libtakumi_render_uniffi.so
           mkdir -p /tmp/test-bindgen
           uniffi-bindgen-cs \
-            --no-format \
             --library bindings/takumi-render-uniffi/target/release/libtakumi_render_uniffi.so \
             --config bindings/takumi-render-uniffi/uniffi.toml \
             --out-dir /tmp/test-bindgen
