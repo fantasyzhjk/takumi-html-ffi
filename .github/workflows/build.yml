@@ -2,7 +2,7 @@ name: Build and Package
 
 on:
   push:
-    tags: [ 'v*' ]
+    tags: ["v*"]
   workflow_dispatch:
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -52,7 +52,7 @@ jobs:
           key: ${{ matrix.target }}
           workspaces: |
             bindings/takumi-render-uniffi -> target
-      
+
       - name: Install Cross-Compiler (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
@@ -63,20 +63,20 @@ jobs:
         run: cargo build --manifest-path bindings/takumi-render-uniffi/Cargo.toml --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.artifact-name }}
           path: bindings/takumi-render-uniffi/target/${{ matrix.target }}/release/${{ matrix.lib-name }}
-  
+
   package:
     name: Package (C# & JVM)
     needs: build-native
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -90,31 +90,31 @@ jobs:
 
       - name: Install uniffi-bindgen-cs
         run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
-      
+
       - name: Install .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
-          
+          dotnet-version: "10.0.x"
+
       - name: Install Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
-          
+          distribution: "temurin"
+          java-version: "21"
+
       - name: Download all native artifacts
         uses: actions/download-artifact@v4
         with:
           path: native-libs
           pattern: native-*
           merge-multiple: false
-          
+
       - name: Organize artifacts for Python script
         shell: pwsh
         run: |
           $PROJECT_ROOT = "bindings/takumi-render-uniffi"
           New-Item -ItemType Directory -Force -Path "$PROJECT_ROOT/target/release"
-          
+
           $mapping = @{
             "linux-x64"  = "x86_64-unknown-linux-gnu"
             "linux-arm64" = "aarch64-unknown-linux-gnu"
@@ -132,16 +132,20 @@ jobs:
             Copy-Item "native-libs/native-$art/*" "$PROJECT_ROOT/target/$triple/release/"
           }
 
-      - name: Build C# Library
-        run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
-          dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
-      
       - name: Build JVM Library
         run: |
           python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
           bindings/takumi-render-uniffi/jvm/gradlew.bat -p bindings/takumi-render-uniffi/jvm jar
-          
+
+      - name: Build C# Library
+        run: |
+          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
+          dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
+
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push "bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
       - name: Upload Packaged Artifacts
         uses: actions/upload-artifact@v4
         with:
