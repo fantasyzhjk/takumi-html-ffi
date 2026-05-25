@@ -84,6 +84,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          workspaces: |
+            bindings/takumi-render-uniffi -> target
 
       - name: Install uniffi-bindgen
         run: cargo install uniffi --version 0.31.1 --features cli
@@ -143,8 +145,11 @@ jobs:
           dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
 
       - name: Push to NuGet
+        shell: pwsh
         run: |
-          dotnet nuget push "bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+          $nupkg = Get-ChildItem -Path "bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release" -Filter "*.nupkg" | Select-Object -First 1
+          Write-Host "Found: $($nupkg.FullName)"
+          dotnet nuget push $nupkg.FullName --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Upload Packaged Artifacts
         uses: actions/upload-artifact@v4

@@ -208,11 +208,8 @@ def prepare_csharp(project_dir: Path) -> None:
     generated_native_dir = project_dir / "Generated" / "Native"
     scratch_dir = project_dir / "obj" / "uniffi-bindgen" / "csharp"
 
-    try:
-        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
-    except FileNotFoundError:
-        build_release(manifest_path)
-        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    build_release(manifest_path)
+    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
 
     clean_dir(scratch_dir)
     bindgen_cs = locate_command(Path.home() / ".cargo/bin/uniffi-bindgen-cs", "uniffi-bindgen-cs")
