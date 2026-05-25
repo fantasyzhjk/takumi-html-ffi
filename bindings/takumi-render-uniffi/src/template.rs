@@ -6,7 +6,9 @@ use std::{
 };
 
 use minijinja::{AutoEscape, Environment, Error, ErrorKind};
+use pulldown_cmark::{Options, Parser, html};
 use serde_json::Value;
+use minijinja::Value as JinjaValue;
 
 use crate::{
     api::RenderRequest,
@@ -146,6 +148,13 @@ fn build_environment(
         env.add_template_owned(prepared.main_name.clone(), source.clone())?;
     }
 
+    env.add_filter("markdown", markdown_filter);
+    env.add_filter("datetime_format", datetime_format_filter);
+    env.add_filter("filesize", filesize_filter);
+    env.add_filter("to_hex", to_hex_filter);
+    env.add_filter("json_pretty", json_pretty_filter);
+    env.add_filter("highlight", highlight_filter);
+
     env.set_loader(move |name| load_template_source(name, &search_paths, &file_cache));
     Ok(env)
 }
@@ -253,6 +262,131 @@ fn normalize_template_path(path: &Path) -> PathBuf {
     }
 
     normalized
+}
+
+
+/// Markdown 转 HTML 过滤器
+/// 用法: {{ content | markdown }}
+fn markdown_filter(v: String) -> JinjaValue {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+    
+    let parser = Parser::new_ext(&v, options);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    
+    JinjaValue::from_safe_string(html_output)
+}
+
+/// 毫秒级时间戳转可读时间字符串
+/// 用法: {{ ts | datetime_format("%Y-%m-%d %H:%M:%S") }}
+fn datetime_format_filter(ts: i64, format_str: &str) -> std::result::Result<String, Error> {
+    use chrono::{DateTime, TimeZone, Utc};
+
+    let dt = if ts.abs() > 9_999_999_999 {
+        DateTime::from_timestamp_millis(ts)
+    } else {
+        Utc.timestamp_opt(ts, 0).single()
+    };
+
+    let dt = dt.ok_or_else(|| {
+        Error::new(ErrorKind::InvalidOperation, "非法的时间戳数据")
+    })?;
+
+    Ok(dt.format(format_str).to_string())
+}
+
+/// 字节大小自动转换 (B, KB, MB, GB)
+/// 用法: {{ bytes | filesize }}
+fn filesize_filter(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// 数字转十六进制
+/// 用法: {{ reg_addr | to_hex }} -> 0x00FF
+/// 用法: {{ reg_addr | to_hex(width=2) }} -> 0xFF
+fn to_hex_filter(val: u64, kwargs: minijinja::value::Kwargs) -> std::result::Result<String, Error> {
+    let width: usize = kwargs.get("width").unwrap_or(4);
+    kwargs.assert_all_used()?; // 确保没有传错其他参数
+    
+    Ok(format!("0x{:0>width$X}", val, width = width))
+}
+
+/// JSON 漂亮打印
+/// 用法: <pre><code>{{ config_obj | json_pretty }}</code></pre>
+fn json_pretty_filter(val: JinjaValue) -> std::result::Result<JinjaValue, Error> {
+    let serialized = serde_json::to_string_pretty(&val)
+        .map_err(|e| Error::new(ErrorKind::InvalidOperation, e.to_string()))?;
+    Ok(JinjaValue::from_safe_string(serialized))
+}
+
+use std::sync::LazyLock;
+
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{Theme, ThemeSet},
+    html::{
+        styled_line_to_highlighted_html,
+        IncludeBackground,
+    },
+    parsing::SyntaxSet,
+    util::LinesWithEndings,
+};
+
+static SYNTAX_SET: LazyLock<SyntaxSet> =
+    LazyLock::new(SyntaxSet::load_defaults_newlines);
+
+static THEME: LazyLock<Theme> = LazyLock::new(|| {
+    let ts = ThemeSet::load_defaults();
+    ts.themes["base16-ocean.dark"].clone()
+});
+
+fn highlight_filter(code: &str, lang: &str) -> JinjaValue {
+    let syntax = SYNTAX_SET
+        .find_syntax_by_token(lang)
+        .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
+
+    let mut highlighter =
+        HighlightLines::new(syntax, &THEME);
+
+    let mut html = String::new();
+
+    html.push_str("<pre><code>");
+
+    for line in LinesWithEndings::from(code) {
+        let ranges = highlighter
+            .highlight_line(line, &SYNTAX_SET)
+            .unwrap();
+
+        let line_html =
+            styled_line_to_highlighted_html(
+                &ranges,
+                IncludeBackground::No,
+            )
+            .unwrap();
+
+        html.push_str(&line_html);
+    }
+
+    html.push_str("</code></pre>");
+
+    JinjaValue::from_safe_string(html)
 }
 
 #[cfg(test)]
