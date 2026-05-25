@@ -2,6 +2,7 @@
 .tools/
 .tmp/
 .idea/
+.serena/
 examples/generated/
 __pycache__/
 

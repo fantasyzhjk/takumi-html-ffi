@@ -20,7 +20,14 @@ use crate::{
     api::{RenderRequest, RenderedImage},
     cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
     error::{RendererError, Result},
-    template::{TemplateRepository, render_markup},
+    markdown::{FormattingConfig, render_markdown_to_html},
+    template::{
+        TemplateRepository,
+        normalize_search_path,
+        render_template_markup,
+        resolve_source,
+        validate_render_input,
+    },
 };
 
 #[derive(uniffi::Object)]
@@ -114,79 +121,6 @@ impl Renderer {
         self.write_rendered_image_to_path(&rendered, &output_path)?;
         Ok(rendered)
     }
-
-    pub fn render_template_string(
-        &self,
-        template_source: String,
-        mut request: RenderRequest,
-    ) -> Result<RenderedImage> {
-        request.template_source = Some(template_source);
-        request.template_file = None;
-        self.render_request(request)
-    }
-
-    pub fn render_template_string_to_file(
-        &self,
-        template_source: String,
-        mut request: RenderRequest,
-        output_path: String,
-    ) -> Result<RenderedImage> {
-        request.template_source = Some(template_source);
-        request.template_file = None;
-        let rendered = self.render_request(request)?;
-        self.write_rendered_image_to_path(&rendered, &output_path)?;
-        Ok(rendered)
-    }
-
-    pub fn render_template_file(
-        &self,
-        template_path: String,
-        mut request: RenderRequest,
-    ) -> Result<RenderedImage> {
-        request.template_source = None;
-        request.template_name = None;
-        request.template_file = Some(template_path);
-        self.render_request(request)
-    }
-
-    pub fn render_template_file_to_file(
-        &self,
-        template_path: String,
-        mut request: RenderRequest,
-        output_path: String,
-    ) -> Result<RenderedImage> {
-        request.template_source = None;
-        request.template_name = None;
-        request.template_file = Some(template_path);
-        let rendered = self.render_request(request)?;
-        self.write_rendered_image_to_path(&rendered, &output_path)?;
-        Ok(rendered)
-    }
-
-    pub fn render_template_name(
-        &self,
-        template_name: String,
-        mut request: RenderRequest,
-    ) -> Result<RenderedImage> {
-        request.template_source = None;
-        request.template_file = None;
-        request.template_name = Some(template_name);
-        self.render_request(request)
-    }
-
-    pub fn render_template_name_to_file(
-        &self,
-        template_name: String,
-        mut request: RenderRequest,
-        output_path: String,
-    ) -> Result<RenderedImage> {
-        request.template_source = None;
-        request.template_file = None;
-        request.template_name = Some(template_name);
-        let rendered = self.render_request(request)?;
-        self.write_rendered_image_to_path(&rendered, &output_path)?;
-        Ok(rendered)
-    }
 }
 
 impl Renderer {
@@ -202,12 +136,18 @@ impl Renderer {
         validate_request(&request)?;
 
         let repository = self.template_repository()?;
-        let rendered_markup = render_markup(&request, repository)?;
-        let html_result = self.convert_markup(
-            &rendered_markup.markup,
-            &request,
-            &rendered_markup.base_candidates,
-        )?;
+        let resolved = resolve_source(&request, &repository)?;
+        let markup = if resolved.requires_jinja() {
+            render_template_markup(&resolved, &request.context_json, &repository)?
+        } else {
+            resolved.source_text.clone()
+        };
+        let markup = if resolved.requires_markdown() {
+            render_markdown_to_html(&markup, &resolved.formatting)?
+        } else {
+            markup
+        };
+        let html_result = self.convert_markup(&markup, &request, &resolved.base_candidates)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
@@ -485,6 +425,9 @@ fn validate_request(request: &RenderRequest) -> Result<()> {
         ));
     }
 
+    validate_render_input(&request.input)?;
+    let _ = FormattingConfig::from_input(&request.input)?;
+
     Ok(())
 }
 
@@ -648,22 +591,6 @@ fn is_local_cached_asset_reference(reference: &str) -> bool {
             || is_windows_verbatim_path(path_part))
 }
 
-fn normalize_search_path(path: &str) -> Result<PathBuf> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err(RendererError::invalid_request("search path cannot be empty"));
-    }
-
-    let normalized = normalize_existing_path(Path::new(trimmed))?;
-    if !normalized.is_dir() {
-        return Err(RendererError::invalid_request(format!(
-            "search path `{}` is not a directory",
-            normalized.display()
-        )));
-    }
-    Ok(normalized)
-}
-
 fn dedup_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut deduped = Vec::new();
     for path in paths {
@@ -689,10 +616,38 @@ fn state_lock_error(name: &str) -> RendererError {
 mod tests {
     use std::fs;
 
-    use crate::api::{ImageFormat, RenderRequest, RenderSize};
+    use crate::api::{
+        ImageFormat,
+        RenderContentKind,
+        RenderInput,
+        RenderRequest,
+        RenderSize,
+        RenderSourceKind,
+    };
     use crate::cache::normalize_existing_path;
     use super::{Renderer, collect_stylesheet_resource_urls, is_local_cached_asset_reference};
     use tempfile::tempdir;
+
+    fn inline_html_request(markup: &str) -> RenderRequest {
+        RenderRequest {
+            input: RenderInput {
+                source_kind: RenderSourceKind::Inline,
+                content_kind: RenderContentKind::Html,
+                value: markup.to_string(),
+                logical_name: Some("inline.html".to_string()),
+                base_path: None,
+                search_paths: None,
+                syntax_theme: None,
+            },
+            context_json: "{}".to_string(),
+            viewport: RenderSize { width: 20, height: 20 },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            resolve_local_assets: None,
+            normalize_whitespace: None,
+        }
+    }
 
     #[test]
     fn add_font_file_is_deduplicated_by_cache() {
@@ -721,22 +676,9 @@ mod tests {
             .expect("add search path");
 
         let rendered = renderer
-            .render_template_string(
-                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#
-                    .to_string(),
-                RenderRequest {
-                    template_name: None,
-                    template_file: None,
-                    template_source: None,
-                    context_json: "{}".to_string(),
-                    viewport: RenderSize { width: 20, height: 20 },
-                    format: ImageFormat::Png,
-                    quality: None,
-                    load_linked_stylesheets: None,
-                    resolve_local_assets: None,
-                    normalize_whitespace: None,
-                },
-            )
+            .render(inline_html_request(
+                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+            ))
             .expect("render local image");
 
         let decoded = image::load_from_memory_with_format(&rendered.bytes, image::ImageFormat::Png)
@@ -764,22 +706,13 @@ mod tests {
             .add_search_path(temp.path().to_string_lossy().into_owned())
             .expect("add search path");
 
-        let request = RenderRequest {
-            template_name: None,
-            template_file: None,
-            template_source: None,
-            context_json: "{}".to_string(),
-            viewport: RenderSize { width: 20, height: 20 },
-            format: ImageFormat::Png,
-            quality: None,
-            load_linked_stylesheets: None,
-            resolve_local_assets: None,
-            normalize_whitespace: None,
-        };
+        let request = inline_html_request(
+            r#"<!doctype html><html><head><link rel="stylesheet" href="styles/linked.css"></head><body><div class="panel"></div></body></html>"#,
+        );
 
         let html_result = renderer
             .convert_markup_with_base(
-                r#"<!doctype html><html><head><link rel="stylesheet" href="styles/linked.css"></head><body><div class="panel"></div></body></html>"#,
+                &request.input.value,
                 &request,
                 Some(temp.path()),
             )
@@ -807,6 +740,31 @@ mod tests {
         assert!(is_local_cached_asset_reference(
             "//?/C:/Users/example/image.png"
         ));
+    }
+
+    #[test]
+    fn rejects_syntax_theme_for_plain_html_input() {
+        let request = RenderRequest {
+            input: RenderInput {
+                source_kind: RenderSourceKind::Inline,
+                content_kind: RenderContentKind::Html,
+                value: "<div />".to_string(),
+                logical_name: None,
+                base_path: None,
+                search_paths: None,
+                syntax_theme: Some("base16-ocean.dark".to_string()),
+            },
+            context_json: "{}".to_string(),
+            viewport: RenderSize { width: 20, height: 20 },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            resolve_local_assets: None,
+            normalize_whitespace: None,
+        };
+
+        let error = super::validate_request(&request).expect_err("reject theme on html");
+        assert!(error.to_string().contains("input.syntax_theme"));
     }
 
     fn tiny_png_bytes() -> Vec<u8> {

@@ -183,17 +183,25 @@ def stage_native_artifacts(crate_dir: Path, base_name: str, destination_root: Pa
 
 
 def copy_matching_files(source_root: Path, destination_root: Path, suffix: str) -> None:
-    clean_dir(destination_root)
+    destination_root.mkdir(parents=True, exist_ok=True)
     matched = False
+    copied_paths: set[Path] = set()
+
     for source_path in source_root.rglob(f"*{suffix}"):
         relative_path = source_path.relative_to(source_root)
         target_path = destination_root / relative_path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target_path)
+        copied_paths.add(target_path.resolve())
         matched = True
 
     if not matched:
         raise FileNotFoundError(f"No files ending with {suffix!r} found under {source_root}")
+
+    for existing_path in destination_root.rglob(f"*{suffix}"):
+        if existing_path.resolve() in copied_paths:
+            continue
+        existing_path.unlink()
 
 
 def build_release(manifest_path: Path) -> None:

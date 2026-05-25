@@ -2,7 +2,10 @@ use std::{fs, path::{Path, PathBuf}};
 
 use image::ImageFormat as DecodedImageFormat;
 use serde_json::json;
-use takumi_render_uniffi::{ImageFormat, RenderRequest, RenderSize, Renderer};
+use takumi_render_uniffi::{
+    ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize, RenderSourceKind,
+    Renderer,
+};
 use tempfile::TempDir;
 
 #[test]
@@ -10,11 +13,21 @@ fn render_template_string_supports_nested_json_and_search_paths() {
     let temp = fixture_bundle();
     let renderer = configured_renderer(temp.path());
     let template_source = fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
-    let mut request = request(ImageFormat::Png);
-    request.template_name = Some("inline/index.jinja".to_string());
+    let request = request(
+        RenderInput {
+            source_kind: RenderSourceKind::Inline,
+            content_kind: RenderContentKind::JinjaHtml,
+            value: template_source,
+            logical_name: Some("inline/index.jinja".to_string()),
+            base_path: None,
+            search_paths: None,
+            syntax_theme: None,
+        },
+        ImageFormat::Png,
+    );
 
     let rendered = renderer
-        .render_template_string(template_source, request)
+        .render(request)
         .expect("render template string");
 
     assert!(!rendered.bytes.is_empty());
@@ -30,13 +43,21 @@ fn render_template_file_to_file_writes_decodable_webp() {
     let temp = fixture_bundle();
     let renderer = configured_renderer(temp.path());
     let output_path = temp.path().join("out/rendered.webp");
+    let request = request(
+        RenderInput {
+            source_kind: RenderSourceKind::File,
+            content_kind: RenderContentKind::JinjaHtml,
+            value: temp.path().join("index.jinja").to_string_lossy().into_owned(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: None,
+        },
+        ImageFormat::WebP,
+    );
 
     let rendered = renderer
-        .render_template_file_to_file(
-            temp.path().join("index.jinja").to_string_lossy().into_owned(),
-            request(ImageFormat::WebP),
-            output_path.to_string_lossy().into_owned(),
-        )
+        .render_to_file(request, output_path.to_string_lossy().into_owned())
         .expect("render template file to file");
 
     let output_bytes = fs::read(&output_path).expect("read output file");
@@ -55,9 +76,21 @@ fn registered_templates_render_by_name() {
     renderer
         .add_template("cards/profile.jinja".to_string(), template_source)
         .expect("register template");
+    let request = request(
+        RenderInput {
+            source_kind: RenderSourceKind::Registered,
+            content_kind: RenderContentKind::JinjaHtml,
+            value: "cards/profile.jinja".to_string(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: None,
+        },
+        ImageFormat::Png,
+    );
 
     let rendered = renderer
-        .render_template_name("cards/profile.jinja".to_string(), request(ImageFormat::Png))
+        .render(request)
         .expect("render template by registered name");
 
     assert!(!rendered.bytes.is_empty());
@@ -94,11 +127,9 @@ fn configured_renderer(search_path: &Path) -> std::sync::Arc<Renderer> {
     renderer
 }
 
-fn request(format: ImageFormat) -> RenderRequest {
+fn request(input: RenderInput, format: ImageFormat) -> RenderRequest {
     RenderRequest {
-        template_name: None,
-        template_file: None,
-        template_source: None,
+        input,
         context_json: json!({
             "user": {
                 "profile": {

@@ -38,30 +38,6 @@ class Renderer : AutoCloseable {
     fun render(request: RenderRequest): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.render(request.toGenerated()) })
 
-    fun renderTemplateFile(templatePath: String, request: RenderRequest): RenderedImage =
-        RenderedImage.fromGenerated(invoke { inner.renderTemplateFile(templatePath, request.toGenerated()) })
-
-    fun renderTemplateFileToFile(templatePath: String, request: RenderRequest, outputPath: String): RenderedImage =
-        RenderedImage.fromGenerated(
-            invoke { inner.renderTemplateFileToFile(templatePath, request.toGenerated(), outputPath) },
-        )
-
-    fun renderTemplateName(templateName: String, request: RenderRequest): RenderedImage =
-        RenderedImage.fromGenerated(invoke { inner.renderTemplateName(templateName, request.toGenerated()) })
-
-    fun renderTemplateNameToFile(templateName: String, request: RenderRequest, outputPath: String): RenderedImage =
-        RenderedImage.fromGenerated(
-            invoke { inner.renderTemplateNameToFile(templateName, request.toGenerated(), outputPath) },
-        )
-
-    fun renderTemplateString(templateSource: String, request: RenderRequest): RenderedImage =
-        RenderedImage.fromGenerated(invoke { inner.renderTemplateString(templateSource, request.toGenerated()) })
-
-    fun renderTemplateStringToFile(templateSource: String, request: RenderRequest, outputPath: String): RenderedImage =
-        RenderedImage.fromGenerated(
-            invoke { inner.renderTemplateStringToFile(templateSource, request.toGenerated(), outputPath) },
-        )
-
     fun renderToFile(request: RenderRequest, outputPath: String): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.renderToFile(request.toGenerated(), outputPath) })
 

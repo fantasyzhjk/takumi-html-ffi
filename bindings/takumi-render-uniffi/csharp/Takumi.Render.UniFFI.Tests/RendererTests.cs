@@ -20,12 +20,13 @@ public sealed class RendererTests
 
         var request = new RenderRequest
         {
+            Input = RenderInput.Template(Template),
             ContextJson = "{\"name\":\"Takumi\"}",
             Viewport = new RenderSize(320, 180),
             Format = ImageFormat.Png,
         };
 
-        var image = renderer.RenderTemplateString(Template, request);
+        var image = renderer.Render(request);
 
         Assert.Equal(ImageFormat.Png, image.Format);
         Assert.Equal("image/png", image.ContentType);
@@ -44,6 +45,7 @@ public sealed class RendererTests
         var outputPath = Path.Combine(Path.GetTempPath(), $"takumi-render-{Guid.NewGuid():N}.png");
         var request = new RenderRequest
         {
+            Input = RenderInput.Template(Template),
             ContextJson = "{\"name\":\"Takumi\"}",
             Viewport = new RenderSize(240, 120),
             Format = ImageFormat.Png,
@@ -51,7 +53,7 @@ public sealed class RendererTests
 
         try
         {
-            var image = renderer.RenderTemplateStringToFile(Template, request, outputPath);
+            var image = renderer.RenderToFile(request, outputPath);
 
             Assert.True(File.Exists(outputPath));
             Assert.Equal((long)image.Bytes.Length, new FileInfo(outputPath).Length);

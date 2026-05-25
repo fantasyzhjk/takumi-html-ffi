@@ -50,10 +50,10 @@ impl FileCache {
         let normalized = normalize_existing_path(path)?;
         let signature = FileSignature::from_path(&normalized)?;
 
-        if let Some(cached) = self.entries.get(&normalized) {
-            if cached.signature == signature {
-                return Ok(Arc::clone(&cached.bytes));
-            }
+        if let Some(cached) = self.entries.get(&normalized)
+            && cached.signature == signature
+        {
+            return Ok(Arc::clone(&cached.bytes));
         }
 
         let bytes = Arc::new(fs::read(&normalized)?);

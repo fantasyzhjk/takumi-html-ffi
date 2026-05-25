@@ -46,45 +46,11 @@ public sealed class Renderer : IDisposable
         return RenderedImage.FromGenerated(Invoke(() => _inner.Render(request.ToGenerated())));
     }
 
-    public RenderedImage RenderTemplateFile(string templatePath, RenderRequest request)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateFile(templatePath, request.ToGenerated())));
-    }
-
-    public RenderedImage RenderTemplateFileToFile(string templatePath, RenderRequest request, string outputPath)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateFileToFile(templatePath, request.ToGenerated(), outputPath)));
-    }
-
-    public RenderedImage RenderTemplateName(string templateName, RenderRequest request)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateName(templateName, request.ToGenerated())));
-    }
-
-    public RenderedImage RenderTemplateNameToFile(string templateName, RenderRequest request, string outputPath)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateNameToFile(templateName, request.ToGenerated(), outputPath)));
-    }
-
-    public RenderedImage RenderTemplateString(string templateSource, RenderRequest request)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateString(templateSource, request.ToGenerated())));
-    }
-
-    public RenderedImage RenderTemplateStringToFile(string templateSource, RenderRequest request, string outputPath)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderTemplateStringToFile(templateSource, request.ToGenerated(), outputPath)));
-    }
-
     public RenderedImage RenderToFile(RenderRequest request, string outputPath)
     {
-        return RenderedImage.FromGenerated(Invoke(() => _inner.RenderToFile(request.ToGenerated(), outputPath)));
+        return RenderedImage.FromGenerated(
+            Invoke(() => _inner.RenderToFile(request.ToGenerated(), outputPath))
+        );
     }
 
     public void Dispose()
@@ -98,7 +64,8 @@ public sealed class Renderer : IDisposable
         {
             action();
         }
-        catch (Exception exception) when (exception is Generated.RendererException or RendererException)
+        catch (Exception exception)
+            when (exception is Generated.RendererException or RendererException)
         {
             throw TranslateException(exception);
         }
@@ -110,16 +77,18 @@ public sealed class Renderer : IDisposable
         {
             return action();
         }
-        catch (Exception exception) when (exception is Generated.RendererException or RendererException)
+        catch (Exception exception)
+            when (exception is Generated.RendererException or RendererException)
         {
             throw TranslateException(exception);
         }
     }
 
-    private static RendererException TranslateException(Exception exception) => exception switch
-    {
-        RendererException rendererException => rendererException,
-        Generated.RendererException generated => RendererException.FromGenerated(generated),
-        _ => new RendererException(RendererErrorKind.Unknown, exception.Message, exception),
-    };
+    private static RendererException TranslateException(Exception exception) =>
+        exception switch
+        {
+            RendererException rendererException => rendererException,
+            Generated.RendererException generated => RendererException.FromGenerated(generated),
+            _ => new RendererException(RendererErrorKind.Unknown, exception.Message, exception),
+        };
 }

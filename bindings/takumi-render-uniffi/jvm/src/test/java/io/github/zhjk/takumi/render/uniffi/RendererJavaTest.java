@@ -20,12 +20,16 @@ final class RendererJavaTest {
         """;
 
     @Test
-    void renderTemplateString_fromJava_returnsPngBytes() {
+    void render_fromJava_returnsPngBytes() {
         try (var renderer = new Renderer()) {
             renderer.addFontFile(fontPath().toString());
 
-            var request = new RenderRequest("{\"name\":\"Takumi\"}", new RenderSize(320, 180), ImageFormat.PNG);
-            var image = renderer.renderTemplateString(TEMPLATE, request);
+            var request = new RenderRequest(
+                RenderInput.template(TEMPLATE),
+                "{\"name\":\"Takumi\"}",
+                new RenderSize(320, 180),
+                ImageFormat.PNG);
+            var image = renderer.render(request);
 
             assertEquals(ImageFormat.PNG, image.getFormat());
             assertEquals("image/png", image.getContentType());
@@ -39,14 +43,18 @@ final class RendererJavaTest {
     }
 
     @Test
-    void renderTemplateStringToFile_fromJava_writesOutput() throws IOException {
+    void renderToFile_fromJava_writesOutput() throws IOException {
         var outputPath = Files.createTempFile("takumi-render-java-", ".png");
 
         try (var renderer = new Renderer()) {
             renderer.addFontFile(fontPath().toString());
 
-            var request = new RenderRequest("{\"name\":\"Takumi\"}", new RenderSize(240, 120), ImageFormat.PNG);
-            var image = renderer.renderTemplateStringToFile(TEMPLATE, request, outputPath.toString());
+            var request = new RenderRequest(
+                RenderInput.template(TEMPLATE),
+                "{\"name\":\"Takumi\"}",
+                new RenderSize(240, 120),
+                ImageFormat.PNG);
+            var image = renderer.renderToFile(request, outputPath.toString());
 
             assertTrue(Files.exists(outputPath));
             assertEquals(image.getBytes().length, Files.size(outputPath));

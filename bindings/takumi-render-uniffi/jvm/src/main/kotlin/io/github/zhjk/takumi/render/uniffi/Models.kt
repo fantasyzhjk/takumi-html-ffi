@@ -1,7 +1,10 @@
 package io.github.zhjk.takumi.render.uniffi
 
 import io.github.zhjk.takumi.render.uniffi.generated.ImageFormat as GeneratedImageFormat
+import io.github.zhjk.takumi.render.uniffi.generated.RenderContentKind as GeneratedRenderContentKind
+import io.github.zhjk.takumi.render.uniffi.generated.RenderInput as GeneratedRenderInput
 import io.github.zhjk.takumi.render.uniffi.generated.RenderRequest as GeneratedRenderRequest
+import io.github.zhjk.takumi.render.uniffi.generated.RenderSourceKind as GeneratedRenderSourceKind
 import io.github.zhjk.takumi.render.uniffi.generated.RenderSize as GeneratedRenderSize
 import io.github.zhjk.takumi.render.uniffi.generated.RenderedImage as GeneratedRenderedImage
 import io.github.zhjk.takumi.render.uniffi.generated.RendererException as GeneratedRendererException
@@ -45,14 +48,168 @@ class RenderSize @JvmOverloads constructor(
     }
 }
 
+enum class RenderSourceKind {
+    INLINE,
+    FILE,
+    REGISTERED,
+    ;
+
+    internal fun toGenerated(): GeneratedRenderSourceKind = when (this) {
+        INLINE -> GeneratedRenderSourceKind.INLINE
+        FILE -> GeneratedRenderSourceKind.FILE
+        REGISTERED -> GeneratedRenderSourceKind.REGISTERED
+    }
+
+    companion object {
+        internal fun fromGenerated(value: GeneratedRenderSourceKind): RenderSourceKind = when (value) {
+            GeneratedRenderSourceKind.INLINE -> INLINE
+            GeneratedRenderSourceKind.FILE -> FILE
+            GeneratedRenderSourceKind.REGISTERED -> REGISTERED
+        }
+    }
+}
+
+enum class RenderContentKind {
+    HTML,
+    MARKDOWN,
+    JINJA_HTML,
+    JINJA_MARKDOWN,
+    ;
+
+    internal fun toGenerated(): GeneratedRenderContentKind = when (this) {
+        HTML -> GeneratedRenderContentKind.HTML
+        MARKDOWN -> GeneratedRenderContentKind.MARKDOWN
+        JINJA_HTML -> GeneratedRenderContentKind.JINJA_HTML
+        JINJA_MARKDOWN -> GeneratedRenderContentKind.JINJA_MARKDOWN
+    }
+
+    companion object {
+        internal fun fromGenerated(value: GeneratedRenderContentKind): RenderContentKind = when (value) {
+            GeneratedRenderContentKind.HTML -> HTML
+            GeneratedRenderContentKind.MARKDOWN -> MARKDOWN
+            GeneratedRenderContentKind.JINJA_HTML -> JINJA_HTML
+            GeneratedRenderContentKind.JINJA_MARKDOWN -> JINJA_MARKDOWN
+        }
+    }
+}
+
+class RenderInput @JvmOverloads constructor(
+    var sourceKind: RenderSourceKind,
+    var contentKind: RenderContentKind,
+    var value: String,
+    var logicalName: String? = null,
+    var basePath: String? = null,
+    var searchPaths: List<String>? = null,
+    var syntaxTheme: String? = null,
+) {
+    internal fun toGenerated(): GeneratedRenderInput = GeneratedRenderInput(
+        sourceKind = sourceKind.toGenerated(),
+        contentKind = contentKind.toGenerated(),
+        value = value,
+        logicalName = logicalName,
+        basePath = basePath,
+        searchPaths = searchPaths,
+        syntaxTheme = syntaxTheme,
+    )
+
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun inline(
+            contentKind: RenderContentKind,
+            value: String,
+            logicalName: String? = null,
+            basePath: String? = null,
+            searchPaths: List<String>? = null,
+            syntaxTheme: String? = null,
+        ): RenderInput = RenderInput(
+            sourceKind = RenderSourceKind.INLINE,
+            contentKind = contentKind,
+            value = value,
+            logicalName = logicalName,
+            basePath = basePath,
+            searchPaths = searchPaths,
+            syntaxTheme = syntaxTheme,
+        )
+
+        @JvmStatic
+        @JvmOverloads
+        fun file(
+            contentKind: RenderContentKind,
+            path: String,
+            logicalName: String? = null,
+            searchPaths: List<String>? = null,
+            syntaxTheme: String? = null,
+        ): RenderInput = RenderInput(
+            sourceKind = RenderSourceKind.FILE,
+            contentKind = contentKind,
+            value = path,
+            logicalName = logicalName,
+            searchPaths = searchPaths,
+            syntaxTheme = syntaxTheme,
+        )
+
+        @JvmStatic
+        @JvmOverloads
+        fun registered(
+            contentKind: RenderContentKind,
+            name: String,
+            searchPaths: List<String>? = null,
+            syntaxTheme: String? = null,
+        ): RenderInput = RenderInput(
+            sourceKind = RenderSourceKind.REGISTERED,
+            contentKind = contentKind,
+            value = name,
+            searchPaths = searchPaths,
+            syntaxTheme = syntaxTheme,
+        )
+
+        @JvmStatic
+        @JvmOverloads
+        fun html(
+            html: String,
+            logicalName: String? = null,
+            basePath: String? = null,
+            searchPaths: List<String>? = null,
+        ): RenderInput = inline(RenderContentKind.HTML, html, logicalName, basePath, searchPaths)
+
+        @JvmStatic
+        @JvmOverloads
+        fun markdown(
+            markdown: String,
+            logicalName: String? = null,
+            basePath: String? = null,
+            searchPaths: List<String>? = null,
+            syntaxTheme: String? = null,
+        ): RenderInput = inline(RenderContentKind.MARKDOWN, markdown, logicalName, basePath, searchPaths, syntaxTheme)
+
+        @JvmStatic
+        @JvmOverloads
+        fun template(
+            templateSource: String,
+            logicalName: String? = null,
+            basePath: String? = null,
+            searchPaths: List<String>? = null,
+        ): RenderInput = inline(RenderContentKind.JINJA_HTML, templateSource, logicalName, basePath, searchPaths)
+
+        @JvmStatic
+        @JvmOverloads
+        fun templateMarkdown(
+            templateSource: String,
+            logicalName: String? = null,
+            basePath: String? = null,
+            searchPaths: List<String>? = null,
+            syntaxTheme: String? = null,
+        ): RenderInput = inline(RenderContentKind.JINJA_MARKDOWN, templateSource, logicalName, basePath, searchPaths, syntaxTheme)
+    }
+}
+
 class RenderRequest @JvmOverloads constructor(
+    var input: RenderInput,
     var contextJson: String = "{}",
     var viewport: RenderSize = RenderSize(),
     var format: ImageFormat = ImageFormat.PNG,
 ) {
-    var templateName: String? = null
-    var templateFile: String? = null
-    var templateSource: String? = null
     var quality: Int? = null
     var loadLinkedStylesheets: Boolean? = null
     var resolveLocalAssets: Boolean? = null
@@ -64,9 +221,7 @@ class RenderRequest @JvmOverloads constructor(
         }?.toUByte()
 
         return GeneratedRenderRequest(
-            templateName = templateName,
-            templateFile = templateFile,
-            templateSource = templateSource,
+            input = input.toGenerated(),
             contextJson = contextJson,
             viewport = viewport.toGenerated(),
             format = format.toGenerated(),

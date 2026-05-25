@@ -28,10 +28,44 @@ pub struct RenderSize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RenderInput {
+    pub source_kind: RenderSourceKind,
+    pub content_kind: RenderContentKind,
+    pub value: String,
+    pub logical_name: Option<String>,
+    pub base_path: Option<String>,
+    pub search_paths: Option<Vec<String>>,
+    pub syntax_theme: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RenderSourceKind {
+    Inline,
+    File,
+    Registered,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RenderContentKind {
+    Html,
+    Markdown,
+    JinjaHtml,
+    JinjaMarkdown,
+}
+
+impl RenderContentKind {
+    pub(crate) fn requires_jinja(self) -> bool {
+        matches!(self, Self::JinjaHtml | Self::JinjaMarkdown)
+    }
+
+    pub(crate) fn requires_markdown(self) -> bool {
+        matches!(self, Self::Markdown | Self::JinjaMarkdown)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RenderRequest {
-    pub template_name: Option<String>,
-    pub template_file: Option<String>,
-    pub template_source: Option<String>,
+    pub input: RenderInput,
     pub context_json: String,
     pub viewport: RenderSize,
     pub format: ImageFormat,
