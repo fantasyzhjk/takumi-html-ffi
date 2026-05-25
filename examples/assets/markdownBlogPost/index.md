@@ -6,28 +6,23 @@
 
 This example renders a complete card from **Markdown** only.
 
-- `context_json` is set to `None`
-- the stylesheet is loaded from `styles.css`
-- the avatar image is resolved relative to the markdown file
+## What this shows
+
+• `context_json` can be `None`
+
+• `styles.css` is loaded like a normal linked stylesheet
+
+• local images resolve relative to the markdown file
 
 ## Tiny checklist
 
-1. Add search paths once on the renderer
-2. Point `RenderInput.value` at `index.md`
-3. Let Markdown do the rest
+Step 1 — Add the asset directory as a search path
 
-```rust
-let request = RenderRequest {
-    context_json: None,
-    input: RenderInput {
-        source_kind: RenderSourceKind::File,
-        content_kind: RenderContentKind::Markdown,
-        value: "index.md".into(),
-        logical_name: None,
-        base_path: None,
-        search_paths: None,
-        syntax_theme: Some("base16-ocean.dark".into()),
-    },
-    ..request_defaults
-};
+Step 2 — Render `index.md` as `RenderContentKind::Markdown`
+
+Step 3 — Write the output image to disk
+
+```text
+context_json = None
+value = "index.md"
 ```

@@ -58,12 +58,11 @@ fn sample_context() -> serde_json::Value {
         "subtitle": "Render Markdown after Jinja without forcing plain Markdown callers to provide context.",
         "author_name": "Takumi examples",
         "published_at": "2026-05-25",
-        "intro": "This sample shows how a nested JSON context can populate headings, summaries, and code snippets inside a Markdown document.",
+        "intro": "This sample shows how nested JSON can populate headings, summaries, and snippets inside a Markdown document.",
         "highlights": [
-            "`context_json` is `Some(json)` only when the template actually needs variables.",
-            "Relative assets still resolve from the template directory.",
-            "The Markdown code fence picks up the configured syntax theme."
+            "`context_json` is `Some(json)` only when the template needs variables.",
+            "Relative assets still resolve from the template directory."
         ],
-        "code_sample": "let request = RenderRequest {\n    context_json: Some(sample_context().to_string()),\n    input: RenderInput {\n        content_kind: RenderContentKind::JinjaMarkdown,\n        ..input\n    },\n    ..request\n};"
+        "code_sample": "context_json = Some(json)\ncontent_kind = JinjaMarkdown\nvalue = \"index.jinja.md\""
     })
 }

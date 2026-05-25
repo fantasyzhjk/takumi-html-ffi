@@ -13,11 +13,12 @@ _By {{ author_name }} · {{ published_at }}_
 ## Highlights
 
 {% for item in highlights %}
-- {{ item }}
+• {{ item }}
+
 {% endfor %}
 
 ## Build snippet
 
-```rust
+```text
 {{ code_sample }}
 ```
