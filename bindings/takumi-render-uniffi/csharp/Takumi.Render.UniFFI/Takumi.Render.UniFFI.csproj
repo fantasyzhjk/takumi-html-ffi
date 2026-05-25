@@ -5,12 +5,20 @@
     <RootNamespace>Takumi.Render.UniFFI</RootNamespace>
     <PackageId>Takumi.Render.UniFFI</PackageId>
     <Version>0.1.0</Version>
-    <Description>Takumi HTML renderer packaged as a standalone C# library with embedded native resources.</Description>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CA2255</NoWarn>
+
+    <Description>C# bindings for takumi-html-ffi — a library for rendering Jinja templates to images, with multi-language FFI support.</Description>
+    <PackageTags>ffi;rendering;jinja;template;image</PackageTags>
+    <PackageProjectUrl>https://github.com/fantasyzhjk/takumi-html-ffi</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/fantasyzhjk/takumi-html-ffi</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Copyright>Copyright © 2026 fantasyzhjk</Copyright>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -19,6 +27,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Generated/Native/**/*.*" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <Target Name="PrepareTakumiRenderBindings" BeforeTargets="BeforeCompile">

@@ -62,11 +62,6 @@ gradle -p bindings/takumi-render-uniffi/jvm jar
 
 - `bindings/takumi-render-uniffi/jvm/build/libs/takumi-render-uniffi-jvm-0.1.0.jar`
 
-4. 外部 Java 项目使用方式：
-
-- 把上面的 jar 文件作为文件依赖加入
-- 不需要直接引用 Gradle project
-
 ### 更新 bindings
 
 只要 Rust 核心 API、UniFFI 类型或方法签名变化，就重新跑下面两个命令：
