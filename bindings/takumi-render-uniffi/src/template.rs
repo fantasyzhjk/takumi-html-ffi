@@ -395,16 +395,15 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{TemplateRepository, render_markup};
+    use super::*;
     use crate::{api::{ImageFormat, RenderRequest, RenderSize}, cache::FileCache};
 
-    #[test]
-    fn renders_nested_json_from_inline_template() {
+    fn render_inline(template_source: &str, context_json: &str) -> String {
         let request = RenderRequest {
             template_name: Some("inline.jinja".to_string()),
             template_file: None,
-            template_source: Some("<div>{{ user.profile.display_name }}</div>".to_string()),
-            context_json: r#"{"user":{"profile":{"display_name":"Takumi"}}}"#.to_string(),
+            template_source: Some(template_source.to_string()),
+            context_json: context_json.to_string(),
             viewport: RenderSize { width: 320, height: 120 },
             format: ImageFormat::Png,
             quality: None,
@@ -418,8 +417,19 @@ mod tests {
             file_cache: Arc::new(Mutex::new(FileCache::default())),
         };
 
-        let rendered = render_markup(&request, repository).expect("render nested json");
-        assert_eq!(rendered.markup, "<div>Takumi</div>");
+        render_markup(&request, repository)
+            .expect("render inline template")
+            .markup
+    }
+
+    #[test]
+    fn renders_nested_json_from_inline_template() {
+        let rendered = render_inline(
+            "<div>{{ user.profile.display_name }}</div>",
+            r#"{"user":{"profile":{"display_name":"Takumi"}}}"#,
+        );
+
+        assert_eq!(rendered, "<div>Takumi</div>");
     }
 
     #[test]
@@ -455,5 +465,75 @@ mod tests {
 
         let rendered = render_markup(&request, repository).expect("render file template");
         assert_eq!(rendered.markup, "<div>Footer</div>");
+    }
+
+    #[test]
+    fn renders_markdown_filter() {
+        let rendered = render_inline(
+            "{{ content | markdown }}",
+            r##"{"content":"# Title\n\nHello *world*."}"##,
+        );
+
+        assert_eq!(
+            rendered,
+            "<h1>Title</h1>\n<p>Hello <em>world</em>.</p>\n"
+        );
+    }
+
+    #[test]
+    fn renders_datetime_format_filter() {
+        let rendered = render_inline(
+            "{{ ts | datetime_format(\"%Y-%m-%d %H:%M:%S\") }}",
+            r#"{"ts":0}"#,
+        );
+
+        assert_eq!(rendered, "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn renders_filesize_filter() {
+        let rendered = render_inline(
+            "{{ bytes | filesize }}",
+            r#"{"bytes":1536}"#,
+        );
+
+        assert_eq!(rendered, "1.50 KB");
+    }
+
+    #[test]
+    fn renders_to_hex_filter() {
+        let rendered = render_inline(
+            "{{ value | to_hex(width=2) }}",
+            r#"{"value":255}"#,
+        );
+
+        assert_eq!(rendered, "0xFF");
+    }
+
+    #[test]
+    fn renders_json_pretty_filter() {
+        let rendered = render_inline(
+            "{{ data | json_pretty }}",
+            r#"{"data":{"name":"Takumi","enabled":true}}"#,
+        );
+
+        assert!(rendered.starts_with("{\n  "));
+        assert!(rendered.contains("\"name\": \"Takumi\""));
+        assert!(rendered.contains("\"enabled\": true"));
+        assert!(rendered.ends_with("\n}"));
+    }
+
+    #[test]
+    fn renders_highlight_filter() {
+        let rendered = render_inline(
+            "{{ code | highlight(\"rust\") }}",
+            r#"{"code":"let x = 1;"}"#,
+        );
+
+        assert!(rendered.starts_with("<pre><code>"));
+        assert!(rendered.ends_with("</code></pre>"));
+        assert!(rendered.contains("let"));
+        assert!(rendered.contains("x"));
+        assert!(rendered.contains("1"));
     }
 }
