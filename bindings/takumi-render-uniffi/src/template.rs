@@ -133,7 +133,7 @@ pub(crate) fn resolve_source(request: &RenderRequest, repository: &TemplateRepos
 
 pub(crate) fn render_template_markup(
     resolved: &ResolvedSource,
-    context_json: &str,
+    context_json: Option<&str>,
     repository: &TemplateRepository,
 ) -> Result<String> {
     let context = parse_context_json(context_json)?;
@@ -350,8 +350,8 @@ fn resolve_existing_template_path(reference: &str, search_paths: &[PathBuf]) -> 
     Ok(None)
 }
 
-fn parse_context_json(context_json: &str) -> Result<Value> {
-    let trimmed = context_json.trim();
+fn parse_context_json(context_json: Option<&str>) -> Result<Value> {
+    let trimmed = context_json.map(str::trim).unwrap_or_default();
     if trimmed.is_empty() {
         Ok(Value::Object(Default::default()))
     } else {
@@ -532,7 +532,7 @@ mod tests {
         cache::FileCache,
     };
 
-    fn render_inline(template_source: &str, context_json: &str) -> String {
+    fn render_inline(template_source: &str, context_json: Option<&str>) -> String {
         let request = RenderRequest {
             input: RenderInput {
                 source_kind: RenderSourceKind::Inline,
@@ -543,7 +543,7 @@ mod tests {
                 search_paths: None,
                 syntax_theme: None,
             },
-            context_json: context_json.to_string(),
+            context_json: context_json.map(ToOwned::to_owned),
             viewport: RenderSize { width: 320, height: 120 },
             format: ImageFormat::Png,
             quality: None,
@@ -558,7 +558,7 @@ mod tests {
         };
 
         let resolved = resolve_source(&request, &repository).expect("resolve inline template");
-        render_template_markup(&resolved, &request.context_json, &repository)
+        render_template_markup(&resolved, request.context_json.as_deref(), &repository)
             .expect("render inline template")
     }
 
@@ -566,10 +566,29 @@ mod tests {
     fn renders_nested_json_from_inline_template() {
         let rendered = render_inline(
             "<div>{{ user.profile.display_name }}</div>",
-            r#"{"user":{"profile":{"display_name":"Takumi"}}}"#,
+            Some(r#"{"user":{"profile":{"display_name":"Takumi"}}}"#),
         );
 
         assert_eq!(rendered, "<div>Takumi</div>");
+    }
+
+    #[test]
+    fn renders_static_inline_template_without_context_json() {
+        let rendered = render_inline("<div>Takumi</div>", None);
+
+        assert_eq!(rendered, "<div>Takumi</div>");
+    }
+
+    #[test]
+    fn parse_context_json_treats_missing_and_blank_as_empty_object() {
+        assert_eq!(
+            parse_context_json(None).expect("parse missing context"),
+            Value::Object(Default::default())
+        );
+        assert_eq!(
+            parse_context_json(Some("   \n\t  ")).expect("parse blank context"),
+            Value::Object(Default::default())
+        );
     }
 
     #[test]
@@ -595,7 +614,7 @@ mod tests {
                 search_paths: None,
                 syntax_theme: None,
             },
-            context_json: "{}".to_string(),
+            context_json: None,
             viewport: RenderSize { width: 320, height: 120 },
             format: ImageFormat::Png,
             quality: None,
@@ -610,7 +629,7 @@ mod tests {
         };
 
         let resolved = resolve_source(&request, &repository).expect("resolve file template");
-        let rendered = render_template_markup(&resolved, &request.context_json, &repository)
+        let rendered = render_template_markup(&resolved, request.context_json.as_deref(), &repository)
             .expect("render file template");
         assert_eq!(rendered, "<div>Footer</div>");
     }
@@ -619,7 +638,7 @@ mod tests {
     fn renders_markdown_filter() {
         let rendered = render_inline(
             "{{ content | markdown }}",
-            r##"{"content":"# Title\n\nHello *world*."}"##,
+            Some(r##"{"content":"# Title\n\nHello *world*."}"##),
         );
 
         assert_eq!(
@@ -632,7 +651,7 @@ mod tests {
     fn renders_datetime_format_filter() {
         let rendered = render_inline(
             "{{ ts | datetime_format(\"%Y-%m-%d %H:%M:%S\") }}",
-            r#"{"ts":0}"#,
+            Some(r#"{"ts":0}"#),
         );
 
         assert_eq!(rendered, "1970-01-01 00:00:00");
@@ -642,7 +661,7 @@ mod tests {
     fn renders_filesize_filter() {
         let rendered = render_inline(
             "{{ bytes | filesize }}",
-            r#"{"bytes":1536}"#,
+            Some(r#"{"bytes":1536}"#),
         );
 
         assert_eq!(rendered, "1.50 KB");
@@ -652,7 +671,7 @@ mod tests {
     fn renders_to_hex_filter() {
         let rendered = render_inline(
             "{{ value | to_hex(width=2) }}",
-            r#"{"value":255}"#,
+            Some(r#"{"value":255}"#),
         );
 
         assert_eq!(rendered, "0xFF");
@@ -662,7 +681,7 @@ mod tests {
     fn renders_json_pretty_filter() {
         let rendered = render_inline(
             "{{ data | json_pretty }}",
-            r#"{"data":{"name":"Takumi","enabled":true}}"#,
+            Some(r#"{"data":{"name":"Takumi","enabled":true}}"#),
         );
 
         assert!(rendered.starts_with("{\n  "));
@@ -675,7 +694,7 @@ mod tests {
     fn renders_highlight_filter() {
         let rendered = render_inline(
             "{{ code | highlight(\"rust\") }}",
-            r#"{"code":"let x = 1;"}"#,
+            Some(r#"{"code":"let x = 1;"}"#),
         );
 
         assert!(rendered.starts_with("<pre><code>"));
@@ -709,7 +728,7 @@ mod tests {
                 search_paths: None,
                 syntax_theme: None,
             },
-            context_json: "{}".to_string(),
+            context_json: None,
             viewport: RenderSize { width: 320, height: 120 },
             format: ImageFormat::Png,
             quality: None,

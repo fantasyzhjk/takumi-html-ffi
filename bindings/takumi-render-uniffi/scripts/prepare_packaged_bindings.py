@@ -16,12 +16,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
     print(f"[DEBUG] Running: {' '.join(str(c) for c in command)}", flush=True)
-    result = subprocess.run(command, cwd=cwd, check=True, capture_output=True, text=True)
-    if result.stdout:
-        print(f"[DEBUG] stdout: {result.stdout}", flush=True)
-    if result.stderr:
-        print(f"[DEBUG] stderr: {result.stderr}", flush=True)
-
+    subprocess.run(command, cwd=cwd, check=True)
 
 def clean_dir(path: Path) -> None:
     if path.exists():

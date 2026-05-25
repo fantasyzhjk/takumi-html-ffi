@@ -16,7 +16,7 @@ serde_json = "1"
 chrono = "0.4"
 syntect = { version = "5", features = ["html"] }
 
-takumi = { version = "1.5.0", features = ["svg", "rayon"] }
+takumi = { version = "1.5.1", features = ["svg", "rayon"] }
 takumi-html = { path = "../.." }
 thiserror = "2.0"
 uniffi = "0.29.5"
@@ -27,4 +27,3 @@ tempfile = "3.27"
 [profile.release]
 codegen-units = 1
 lto = true
-strip = true

@@ -138,7 +138,7 @@ impl Renderer {
         let repository = self.template_repository()?;
         let resolved = resolve_source(&request, &repository)?;
         let markup = if resolved.requires_jinja() {
-            render_template_markup(&resolved, &request.context_json, &repository)?
+            render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
         } else {
             resolved.source_text.clone()
         };
@@ -625,8 +625,11 @@ mod tests {
         RenderSourceKind,
     };
     use crate::cache::normalize_existing_path;
-    use super::{Renderer, collect_stylesheet_resource_urls, is_local_cached_asset_reference};
+    use super::{Renderer, collect_stylesheet_resource_urls};
     use tempfile::tempdir;
+
+    #[cfg(windows)]
+    use super::is_local_cached_asset_reference;
 
     fn inline_html_request(markup: &str) -> RenderRequest {
         RenderRequest {
@@ -639,7 +642,7 @@ mod tests {
                 search_paths: None,
                 syntax_theme: None,
             },
-            context_json: "{}".to_string(),
+            context_json: None,
             viewport: RenderSize { width: 20, height: 20 },
             format: ImageFormat::Png,
             quality: None,
@@ -754,7 +757,7 @@ mod tests {
                 search_paths: None,
                 syntax_theme: Some("base16-ocean.dark".to_string()),
             },
-            context_json: "{}".to_string(),
+            context_json: None,
             viewport: RenderSize { width: 20, height: 20 },
             format: ImageFormat::Png,
             quality: None,

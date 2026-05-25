@@ -161,7 +161,7 @@ public sealed class RenderRequest
 {
     public required RenderInput Input { get; init; }
 
-    public required string ContextJson { get; init; }
+    public string? ContextJson { get; init; }
 
     public required RenderSize Viewport { get; init; }
 

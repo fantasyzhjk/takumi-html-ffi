@@ -66,7 +66,7 @@ impl RenderContentKind {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RenderRequest {
     pub input: RenderInput,
-    pub context_json: String,
+    pub context_json: Option<String>,
     pub viewport: RenderSize,
     pub format: ImageFormat,
     pub quality: Option<u8>,

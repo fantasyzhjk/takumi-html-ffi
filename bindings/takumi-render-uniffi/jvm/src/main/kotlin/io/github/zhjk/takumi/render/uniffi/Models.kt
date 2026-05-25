@@ -206,7 +206,7 @@ class RenderInput @JvmOverloads constructor(
 
 class RenderRequest @JvmOverloads constructor(
     var input: RenderInput,
-    var contextJson: String = "{}",
+    var contextJson: String? = null,
     var viewport: RenderSize = RenderSize(),
     var format: ImageFormat = ImageFormat.PNG,
 ) {

@@ -116,6 +116,93 @@ fn font_cache_deduplicates_repeated_font_loads() {
     assert_eq!(renderer.debug_font_cache_entries(), 1);
 }
 
+#[test]
+fn render_markdown_file_without_context_json_supports_assets() {
+    let temp = fixture_bundle();
+    let renderer = configured_renderer(temp.path());
+    let request = request_with_context(
+        RenderInput {
+            source_kind: RenderSourceKind::File,
+            content_kind: RenderContentKind::Markdown,
+            value: "post.md".to_string(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: Some("base16-ocean.dark".to_string()),
+        },
+        ImageFormat::Png,
+        None,
+    );
+
+    let rendered = renderer
+        .render(request)
+        .expect("render markdown file without context");
+
+    assert!(!rendered.bytes.is_empty());
+    assert_eq!(rendered.content_type.as_deref(), Some("image/png"));
+    let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
+        .expect("decode png bytes");
+    assert_eq!(decoded.width(), 64);
+    assert_eq!(decoded.height(), 64);
+}
+
+#[test]
+fn render_static_jinja_markdown_file_without_context_json() {
+    let temp = fixture_bundle();
+    let renderer = configured_renderer(temp.path());
+    let request = request_with_context(
+        RenderInput {
+            source_kind: RenderSourceKind::File,
+            content_kind: RenderContentKind::JinjaMarkdown,
+            value: "static-article.jinja.md".to_string(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: Some("base16-ocean.dark".to_string()),
+        },
+        ImageFormat::Png,
+        None,
+    );
+
+    let rendered = renderer
+        .render(request)
+        .expect("render static jinja markdown without context");
+
+    assert!(!rendered.bytes.is_empty());
+    let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
+        .expect("decode png bytes");
+    assert_eq!(decoded.width(), 64);
+    assert_eq!(decoded.height(), 64);
+}
+
+#[test]
+fn render_jinja_markdown_file_supports_nested_json_context() {
+    let temp = fixture_bundle();
+    let renderer = configured_renderer(temp.path());
+    let request = request(
+        RenderInput {
+            source_kind: RenderSourceKind::File,
+            content_kind: RenderContentKind::JinjaMarkdown,
+            value: "article.jinja.md".to_string(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: Some("base16-ocean.dark".to_string()),
+        },
+        ImageFormat::Png,
+    );
+
+    let rendered = renderer
+        .render(request)
+        .expect("render jinja markdown with nested json context");
+
+    assert!(!rendered.bytes.is_empty());
+    let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
+        .expect("decode png bytes");
+    assert_eq!(decoded.width(), 64);
+    assert_eq!(decoded.height(), 64);
+}
+
 fn configured_renderer(search_path: &Path) -> std::sync::Arc<Renderer> {
     let renderer = Renderer::new();
     renderer
@@ -128,16 +215,13 @@ fn configured_renderer(search_path: &Path) -> std::sync::Arc<Renderer> {
 }
 
 fn request(input: RenderInput, format: ImageFormat) -> RenderRequest {
+    request_with_context(input, format, Some(sample_context_json()))
+}
+
+fn request_with_context(input: RenderInput, format: ImageFormat, context_json: Option<String>) -> RenderRequest {
     RenderRequest {
         input,
-        context_json: json!({
-            "user": {
-                "profile": {
-                    "display_name": "Takumi"
-                }
-            }
-        })
-        .to_string(),
+        context_json,
         viewport: RenderSize {
             width: 64,
             height: 64,
@@ -148,6 +232,17 @@ fn request(input: RenderInput, format: ImageFormat) -> RenderRequest {
         resolve_local_assets: None,
         normalize_whitespace: None,
     }
+}
+
+fn sample_context_json() -> String {
+    json!({
+        "user": {
+            "profile": {
+                "display_name": "Takumi"
+            }
+        }
+    })
+    .to_string()
 }
 
 fn fixture_bundle() -> TempDir {
@@ -197,6 +292,49 @@ body {
 "#,
     )
     .expect("write template");
+    fs::write(
+        temp.path().join("post.md"),
+        r#"<link rel=\"stylesheet\" href=\"styles.css\" />
+
+# Plain Markdown example
+
+This screenshot is rendered from **Markdown** without any `context_json`.
+
+![Pixel](pixel.png)
+
+```rust
+let request = RenderRequest {
+    context_json: None,
+    ..Default::default()
+};
+```
+"#,
+    )
+    .expect("write markdown post");
+    fs::write(
+        temp.path().join("static-article.jinja.md"),
+        r#"<link rel=\"stylesheet\" href=\"styles.css\" />
+
+# Static JinjaMarkdown example
+
+No template variables are required here, so `context_json` can stay omitted.
+
+![Pixel](pixel.png)
+"#,
+    )
+    .expect("write static jinja markdown article");
+    fs::write(
+        temp.path().join("article.jinja.md"),
+        r#"<link rel=\"stylesheet\" href=\"styles.css\" />
+
+# {{ user.profile.display_name }}
+
+This article is rendered from **JinjaMarkdown** with nested JSON context.
+
+![Pixel](pixel.png)
+"#,
+    )
+    .expect("write jinja markdown article");
     temp
 }
 

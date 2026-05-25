@@ -1,1 +1,8 @@
 target/
+examples/**
+!examples/fonts/
+!examples/assets/
+!examples/assets/markdownBlogPost/
+!examples/assets/markdownBlogPost/**
+!examples/assets/jinjaMarkdownArticle/
+!examples/assets/jinjaMarkdownArticle/**

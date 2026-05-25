@@ -14,4 +14,5 @@ jvm/Generated/
 jvm/.gradle/
 jvm/build/
 
-/examples
+/examples/render_score_panel.rs
+/examples/render_score_panel_kanonbot.rs
