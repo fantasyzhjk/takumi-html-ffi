@@ -170,7 +170,7 @@ body {
 }
 
 fn font_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets/fonts/Rubik-Regular.ttf")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/fonts/Rubik-Regular.ttf")
 }
 
 fn tiny_png_bytes() -> Vec<u8> {

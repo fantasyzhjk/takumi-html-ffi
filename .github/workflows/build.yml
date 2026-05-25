@@ -2,10 +2,7 @@ name: Build and Package
 
 on:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -48,6 +45,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          workspaces: |
+            bindings/takumi-render-uniffi -> target
       
       - name: Install Cross-Compiler (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -65,7 +69,7 @@ jobs:
         with:
           name: native-${{ matrix.artifact-name }}
           path: bindings/takumi-render-uniffi/target/${{ matrix.target }}/release/${{ matrix.lib-name }}
-
+  
   package:
     name: Package (C# & JVM)
     needs: build-native
@@ -75,9 +79,15 @@ jobs:
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install uniffi-bindgen
+        run: cargo install uniffi --version 0.31.1 --features cli
+
       - name: Install uniffi-bindgen-cs
-        run: cargo install uniffi-bindgen-cs
+        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
       
       - name: Install .NET
         uses: actions/setup-dotnet@v4
@@ -102,7 +112,6 @@ jobs:
           PROJECT_ROOT="bindings/takumi-render-uniffi"
           mkdir -p $PROJECT_ROOT/target/release
           
-          # Map artifact names to target triples
           declare -A mapping=(
             ["linux-x64"]="x86_64-unknown-linux-gnu"
             ["linux-arm64"]="aarch64-unknown-linux-gnu"
@@ -111,9 +120,7 @@ jobs:
             ["osx-x64"]="x86_64-apple-darwin"
             ["osx-arm64"]="aarch64-apple-darwin"
           )
-          
-          # Host library (for uniffi-bindgen to extract metadata)
-          # We use the linux-x64 artifact since we are on Ubuntu
+
           cp native-libs/native-linux-x64/libtakumi_render_uniffi.so $PROJECT_ROOT/target/release/
           
           for art in "${!mapping[@]}"; do
@@ -122,14 +129,24 @@ jobs:
             cp native-libs/native-$art/* $PROJECT_ROOT/target/$triple/release/
           done
 
+      - name: Debug uniffi-bindgen-cs direct
+        run: |
+          mkdir -p /tmp/test-bindgen
+          uniffi-bindgen-cs \
+            --no-format \
+            --library bindings/takumi-render-uniffi/target/release/libtakumi_render_uniffi.so \
+            --config bindings/takumi-render-uniffi/uniffi.toml \
+            --out-dir /tmp/test-bindgen
+          echo "exit: $?"
+          ls -la /tmp/test-bindgen/
+
       - name: Build C# Library
         run: |
-          # The script will try to build the host library, which is fine as it's already there
           python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
             --language csharp \
             --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
-          dotnet build bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
-          
+          dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
+      
       - name: Build JVM Library
         run: |
           python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
@@ -144,5 +161,4 @@ jobs:
           name: packaged-bindings
           path: |
             bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.nupkg
-            bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.dll
             bindings/takumi-render-uniffi/jvm/build/libs/*.jar

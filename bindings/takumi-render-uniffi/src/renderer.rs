@@ -323,7 +323,7 @@ impl Renderer {
 
     fn load_cached_image(&self, raw_url: &str) -> Result<ImageSource> {
         let (path_part, _) = split_reference_suffix(raw_url);
-        let normalized = normalize_existing_path(Path::new(path_part))?;
+        let normalized = normalize_existing_path(&cached_asset_reference_path(path_part))?;
         let cache_key = normalized.to_string_lossy().replace('\\', "/");
 
         if let Some(image) = self
@@ -596,13 +596,56 @@ fn parse_url_token(source: &str, start: usize) -> Option<(String, usize)> {
 }
 
 fn split_reference_suffix(reference: &str) -> (&str, &str) {
-    let split_at = reference.find(['?', '#']).unwrap_or(reference.len());
+    let search_start = if starts_with_windows_verbatim_prefix(reference) {
+        4
+    } else {
+        0
+    };
+    let split_at = reference[search_start..]
+        .find(['?', '#'])
+        .map(|index| index + search_start)
+        .unwrap_or(reference.len());
     reference.split_at(split_at)
+}
+
+fn starts_with_windows_verbatim_prefix(reference: &str) -> bool {
+    reference.starts_with("//?/")
+        || reference.starts_with("//./")
+        || reference.starts_with(r"\\?\")
+        || reference.starts_with(r"\\.\")
+}
+
+fn cached_asset_reference_path(path_part: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(rest) = path_part.strip_prefix("//?/") {
+            return PathBuf::from(format!(r"\\?\{}", rest.replace('/', "\\")));
+        }
+
+        if let Some(rest) = path_part.strip_prefix("//./") {
+            return PathBuf::from(format!(r"\\.\{}", rest.replace('/', "\\")));
+        }
+    }
+
+    PathBuf::from(path_part)
+}
+
+#[cfg(windows)]
+fn is_windows_verbatim_path(path_part: &str) -> bool {
+    let normalized = path_part.replace('\\', "/");
+    normalized.starts_with("//?/") || normalized.starts_with("//./")
+}
+
+#[cfg(not(windows))]
+fn is_windows_verbatim_path(_: &str) -> bool {
+    false
 }
 
 fn is_local_cached_asset_reference(reference: &str) -> bool {
     let (path_part, _) = split_reference_suffix(reference.trim());
-    !path_part.is_empty() && Path::new(path_part).is_absolute()
+    !path_part.is_empty()
+        && (cached_asset_reference_path(path_part).is_absolute()
+            || is_windows_verbatim_path(path_part))
 }
 
 fn normalize_search_path(path: &str) -> Result<PathBuf> {
@@ -648,14 +691,14 @@ mod tests {
 
     use crate::api::{ImageFormat, RenderRequest, RenderSize};
     use crate::cache::normalize_existing_path;
-    use super::{Renderer, collect_stylesheet_resource_urls};
+    use super::{Renderer, collect_stylesheet_resource_urls, is_local_cached_asset_reference};
     use tempfile::tempdir;
 
     #[test]
     fn add_font_file_is_deduplicated_by_cache() {
         let renderer = Renderer::default();
         let font_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/assets/fonts/Rubik-Regular.ttf");
+            .join("../../examples/fonts/Rubik-Regular.ttf");
 
         renderer
             .add_font_file_impl(&font_path)
@@ -756,6 +799,14 @@ mod tests {
             preloaded.contains_key(expected.as_str()),
             "expected linked stylesheet image to be preloaded into fetched resources"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_windows_paths_are_treated_as_local_cached_assets() {
+        assert!(is_local_cached_asset_reference(
+            "//?/C:/Users/example/image.png"
+        ));
     }
 
     fn tiny_png_bytes() -> Vec<u8> {

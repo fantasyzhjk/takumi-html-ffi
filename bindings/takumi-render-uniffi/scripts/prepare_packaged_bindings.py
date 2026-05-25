@@ -15,7 +15,12 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
-    subprocess.run(command, cwd=cwd, check=True)
+    print(f"[DEBUG] Running: {' '.join(str(c) for c in command)}", flush=True)
+    result = subprocess.run(command, cwd=cwd, check=True, capture_output=True, text=True)
+    if result.stdout:
+        print(f"[DEBUG] stdout: {result.stdout}", flush=True)
+    if result.stderr:
+        print(f"[DEBUG] stderr: {result.stderr}", flush=True)
 
 
 def clean_dir(path: Path) -> None:
@@ -203,9 +208,12 @@ def prepare_csharp(project_dir: Path) -> None:
     generated_native_dir = project_dir / "Generated" / "Native"
     scratch_dir = project_dir / "obj" / "uniffi-bindgen" / "csharp"
 
-    build_release(manifest_path)
+    try:
+        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    except FileNotFoundError:
+        build_release(manifest_path)
+        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
 
-    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
     clean_dir(scratch_dir)
     bindgen_cs = locate_command(Path.home() / ".cargo/bin/uniffi-bindgen-cs", "uniffi-bindgen-cs")
     run(
@@ -240,9 +248,12 @@ def prepare_kotlin(project_dir: Path) -> None:
     generated_resources_dir = project_dir / "Generated" / "Resources" / "native"
     scratch_dir = project_dir / "build" / "uniffi-bindgen" / "kotlin"
 
-    build_release(manifest_path)
+    try:
+        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    except FileNotFoundError:
+        build_release(manifest_path)
+        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
 
-    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
     clean_dir(scratch_dir)
     try:
         uniffi_bindgen = locate_command(

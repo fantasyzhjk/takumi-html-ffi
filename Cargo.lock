@@ -1306,9 +1306,9 @@ dependencies = [
 
 [[package]]
 name = "takumi"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea5271072ce981b846fe98118433f0af05ca1cdbae8cf078b622c9547e0d1980"
+checksum = "15f00c934c6a188490d6cfea869dac97e5b0801cabe8ed527e80e16f71002fc0"
 dependencies = [
  "bitflags",
  "bytemuck",

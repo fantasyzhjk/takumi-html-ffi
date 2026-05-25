@@ -7,14 +7,19 @@ edition = "2024"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-image = { version = "0.25", default-features = false, features = ["png", "webp"] }
-minijinja = "2.12"
+image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg", "rayon"] }
+minijinja = "2.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-takumi = { version = "1.4.1", features = ["svg", "rayon"] }
+takumi = { version = "1.5.0", features = ["svg", "rayon"] }
 takumi-html = { path = "../.." }
 thiserror = "2.0"
 uniffi = "0.29.5"
 
 [dev-dependencies]
-tempfile = "3.13"
+tempfile = "3.27"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
