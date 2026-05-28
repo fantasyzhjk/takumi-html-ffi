@@ -1,6 +1,6 @@
 [package]
 name = "takumi-render-uniffi"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -16,7 +16,7 @@ serde_json = "1"
 chrono = "0.4"
 syntect = { version = "5", features = ["html"] }
 
-takumi = { version = "1.5.1", features = ["svg", "rayon"] }
+takumi = { version = "1.6.0", features = ["svg", "rayon"] }
 takumi-html = { path = "../.." }
 thiserror = "2.0"
 uniffi = "0.29.5"

@@ -1,6 +1,6 @@
 use std::{fs, path::{Path, PathBuf}};
 
-use image::ImageFormat as DecodedImageFormat;
+use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
 use takumi_render_uniffi::{
     ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize, RenderSourceKind,
@@ -36,6 +36,63 @@ fn render_template_string_supports_nested_json_and_search_paths() {
         .expect("decode png bytes");
     assert_eq!(decoded.width(), 64);
     assert_eq!(decoded.height(), 64);
+}
+
+#[test]
+fn render_inline_html_linear_gradient_background_renders_color_transition() {
+    let renderer = Renderer::new();
+    let request = RenderRequest {
+        input: RenderInput {
+            source_kind: RenderSourceKind::Inline,
+            content_kind: RenderContentKind::Html,
+            value: r#"<style>
+      .gradient {
+        display: block;
+        width: 64px;
+        height: 16px;
+        background-image: linear-gradient(to right, rgb(255, 0, 0), rgb(0, 0, 255));
+      }
+    </style>
+    <div class="gradient"></div>
+"#
+            .to_string(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: None,
+        },
+        context_json: None,
+        viewport: RenderSize {
+            width: 64,
+            height: 16,
+        },
+        format: ImageFormat::Png,
+        quality: Some(100),
+        load_linked_stylesheets: None,
+        resolve_local_assets: None,
+        normalize_whitespace: None,
+    };
+
+    let rendered = renderer
+        .render(request)
+        .expect("render inline html with linear gradient");
+
+    assert!(!rendered.bytes.is_empty());
+    let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
+        .expect("decode png bytes");
+    assert_eq!(decoded.width(), 64);
+    assert_eq!(decoded.height(), 16);
+
+    let left = decoded.get_pixel(4, 8).0;
+    let center = decoded.get_pixel(32, 8).0;
+    let right = decoded.get_pixel(59, 8).0;
+
+    assert!(left[0] > left[2], "left pixel should remain red-dominant: {left:?}");
+    assert!(
+        center[0] > 0 && center[2] > 0,
+        "center pixel should contain mixed gradient colors: {center:?}"
+    );
+    assert!(right[2] > right[0], "right pixel should remain blue-dominant: {right:?}");
 }
 
 #[test]
