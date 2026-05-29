@@ -6,13 +6,8 @@ mod renderer;
 mod template;
 
 pub use api::{
-	ImageFormat,
-	RenderContentKind,
-	RenderInput,
-	RenderRequest,
-	RenderSize,
-	RenderSourceKind,
-	RenderedImage,
+    ImageFormat, MeasuredLayout, RenderContentKind, RenderInput, RenderRequest, RenderSize,
+    RenderSourceKind, RenderedImage,
 };
 pub use error::{RendererError, Result};
 pub use renderer::Renderer;

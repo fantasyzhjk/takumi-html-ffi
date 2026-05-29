@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
@@ -12,7 +15,8 @@ use tempfile::TempDir;
 fn render_template_string_supports_nested_json_and_search_paths() {
     let temp = fixture_bundle();
     let renderer = configured_renderer(temp.path());
-    let template_source = fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
+    let template_source =
+        fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
     let request = request(
         RenderInput {
             source_kind: RenderSourceKind::Inline,
@@ -26,9 +30,7 @@ fn render_template_string_supports_nested_json_and_search_paths() {
         ImageFormat::Png,
     );
 
-    let rendered = renderer
-        .render(request)
-        .expect("render template string");
+    let rendered = renderer.render(request).expect("render template string");
 
     assert!(!rendered.bytes.is_empty());
     assert_eq!(rendered.format, ImageFormat::Png);
@@ -63,8 +65,8 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
         },
         context_json: None,
         viewport: RenderSize {
-            width: 64,
-            height: 16,
+            width: Some(64),
+            height: Some(16),
         },
         format: ImageFormat::Png,
         quality: Some(100),
@@ -87,12 +89,18 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
     let center = decoded.get_pixel(32, 8).0;
     let right = decoded.get_pixel(59, 8).0;
 
-    assert!(left[0] > left[2], "left pixel should remain red-dominant: {left:?}");
+    assert!(
+        left[0] > left[2],
+        "left pixel should remain red-dominant: {left:?}"
+    );
     assert!(
         center[0] > 0 && center[2] > 0,
         "center pixel should contain mixed gradient colors: {center:?}"
     );
-    assert!(right[2] > right[0], "right pixel should remain blue-dominant: {right:?}");
+    assert!(
+        right[2] > right[0],
+        "right pixel should remain blue-dominant: {right:?}"
+    );
 }
 
 #[test]
@@ -104,7 +112,11 @@ fn render_template_file_to_file_writes_decodable_webp() {
         RenderInput {
             source_kind: RenderSourceKind::File,
             content_kind: RenderContentKind::JinjaHtml,
-            value: temp.path().join("index.jinja").to_string_lossy().into_owned(),
+            value: temp
+                .path()
+                .join("index.jinja")
+                .to_string_lossy()
+                .into_owned(),
             logical_name: None,
             base_path: None,
             search_paths: None,
@@ -129,7 +141,8 @@ fn render_template_file_to_file_writes_decodable_webp() {
 fn registered_templates_render_by_name() {
     let temp = fixture_bundle();
     let renderer = configured_renderer(temp.path());
-    let template_source = fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
+    let template_source =
+        fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
     renderer
         .add_template("cards/profile.jinja".to_string(), template_source)
         .expect("register template");
@@ -275,13 +288,17 @@ fn request(input: RenderInput, format: ImageFormat) -> RenderRequest {
     request_with_context(input, format, Some(sample_context_json()))
 }
 
-fn request_with_context(input: RenderInput, format: ImageFormat, context_json: Option<String>) -> RenderRequest {
+fn request_with_context(
+    input: RenderInput,
+    format: ImageFormat,
+    context_json: Option<String>,
+) -> RenderRequest {
     RenderRequest {
         input,
         context_json,
         viewport: RenderSize {
-            width: 64,
-            height: 64,
+            width: Some(64),
+            height: Some(64),
         },
         format,
         quality: Some(100),
@@ -289,6 +306,39 @@ fn request_with_context(input: RenderInput, format: ImageFormat, context_json: O
         resolve_local_assets: None,
         normalize_whitespace: None,
     }
+}
+
+#[test]
+fn render_without_fixed_height_uses_measured_content_height() {
+    let temp = fixture_bundle();
+    let renderer = configured_renderer(temp.path());
+    let mut request = request(
+        RenderInput {
+            source_kind: RenderSourceKind::File,
+            content_kind: RenderContentKind::JinjaHtml,
+            value: temp
+                .path()
+                .join("index.jinja")
+                .to_string_lossy()
+                .into_owned(),
+            logical_name: None,
+            base_path: None,
+            search_paths: None,
+            syntax_theme: None,
+        },
+        ImageFormat::Png,
+    );
+    request.viewport.height = None;
+
+    let measured = renderer
+        .measure(request.clone())
+        .expect("measure auto-height layout");
+    let rendered = renderer.render(request).expect("render auto-height layout");
+
+    assert_eq!(measured.width, 64);
+    assert_eq!(measured.height, 64);
+    assert_eq!(rendered.width, 64);
+    assert_eq!(rendered.height, 64);
 }
 
 fn sample_context_json() -> String {
@@ -403,7 +453,10 @@ fn tiny_png_bytes() -> Vec<u8> {
     let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
     let mut bytes = Vec::new();
     image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
         .expect("encode tiny png");
     bytes
 }

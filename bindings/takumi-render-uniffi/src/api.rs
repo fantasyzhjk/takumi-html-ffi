@@ -4,7 +4,7 @@ use takumi::rendering::ImageOutputFormat;
 pub enum ImageFormat {
     Png,
     WebP,
-    Jpeg
+    Jpeg,
 }
 
 impl ImageFormat {
@@ -23,8 +23,8 @@ impl ImageFormat {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RenderSize {
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -82,4 +82,10 @@ pub struct RenderedImage {
     pub width: u32,
     pub height: u32,
     pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MeasuredLayout {
+    pub width: u32,
+    pub height: u32,
 }

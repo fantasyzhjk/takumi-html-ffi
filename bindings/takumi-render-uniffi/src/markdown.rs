@@ -38,7 +38,9 @@ impl FormattingConfig {
             Some(theme) => {
                 let trimmed = theme.trim();
                 if trimmed.is_empty() {
-                    return Err(RendererError::invalid_request("input.syntax_theme cannot be empty"));
+                    return Err(RendererError::invalid_request(
+                        "input.syntax_theme cannot be empty",
+                    ));
                 }
                 trimmed.to_string()
             }
@@ -60,7 +62,10 @@ impl FormattingConfig {
     }
 }
 
-pub(crate) fn render_markdown_to_html(markdown: &str, formatting: &FormattingConfig) -> Result<String> {
+pub(crate) fn render_markdown_to_html(
+    markdown: &str,
+    formatting: &FormattingConfig,
+) -> Result<String> {
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -77,7 +82,11 @@ pub(crate) fn render_markdown_to_html(markdown: &str, formatting: &FormattingCon
     Ok(markdown_to_html_with_plugins(markdown, &options, &plugins))
 }
 
-pub(crate) fn highlight_code(code: &str, lang: &str, formatting: &FormattingConfig) -> Result<String> {
+pub(crate) fn highlight_code(
+    code: &str,
+    lang: &str,
+    formatting: &FormattingConfig,
+) -> Result<String> {
     let syntax = SYNTAX_SET
         .find_syntax_by_token(lang)
         .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
@@ -111,7 +120,11 @@ mod tests {
     #[test]
     fn rejects_unknown_syntax_theme() {
         let error = FormattingConfig::new(Some("missing-theme")).expect_err("reject theme");
-        assert!(error.to_string().contains("supported built-in syntect theme"));
+        assert!(
+            error
+                .to_string()
+                .contains("supported built-in syntect theme")
+        );
     }
 
     #[test]

@@ -11,7 +11,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let renderer = Renderer::new();
     let asset_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets");
     let asset_dir = asset_root.join("markdownBlogPost");
-    let output_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("output-markdown-blog-post.png");
+    let output_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("output-markdown-blog-post.png");
 
     renderer.add_search_path(asset_dir.to_string_lossy().into_owned())?;
     for font_path in [
@@ -24,8 +25,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let request = RenderRequest {
         context_json: None,
         viewport: RenderSize {
-            width: 1200,
-            height: 800,
+            width: Some(1200),
+            height: Some(800),
         },
         format: ImageFormat::Png,
         input: RenderInput {

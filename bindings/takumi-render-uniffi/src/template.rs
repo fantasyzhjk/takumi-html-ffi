@@ -47,7 +47,9 @@ impl ResolvedSource {
 pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(RendererError::invalid_request("search path cannot be empty"));
+        return Err(RendererError::invalid_request(
+            "search path cannot be empty",
+        ));
     }
 
     let normalized = normalize_existing_path(Path::new(trimmed))?;
@@ -62,32 +64,50 @@ pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
 }
 
 pub(crate) fn validate_render_input(input: &RenderInput) -> Result<()> {
-    if input.logical_name.as_deref().is_some_and(|name| name.trim().is_empty()) {
-        return Err(RendererError::invalid_request("input.logical_name cannot be empty when provided"));
+    if input
+        .logical_name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(RendererError::invalid_request(
+            "input.logical_name cannot be empty when provided",
+        ));
     }
 
-    if input.base_path.as_deref().is_some_and(|path| path.trim().is_empty()) {
-        return Err(RendererError::invalid_request("input.base_path cannot be empty when provided"));
+    if input
+        .base_path
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty())
+    {
+        return Err(RendererError::invalid_request(
+            "input.base_path cannot be empty when provided",
+        ));
     }
 
-    if matches!(input.source_kind, RenderSourceKind::File | RenderSourceKind::Registered)
-        && input.value.trim().is_empty()
+    if matches!(
+        input.source_kind,
+        RenderSourceKind::File | RenderSourceKind::Registered
+    ) && input.value.trim().is_empty()
     {
         return Err(RendererError::invalid_request(
             "input.value cannot be empty for file or registered sources",
         ));
     }
 
-    if matches!(input.source_kind, RenderSourceKind::File | RenderSourceKind::Registered)
-        && input.logical_name.is_some()
+    if matches!(
+        input.source_kind,
+        RenderSourceKind::File | RenderSourceKind::Registered
+    ) && input.logical_name.is_some()
     {
         return Err(RendererError::invalid_request(
             "input.logical_name is only supported for inline sources",
         ));
     }
 
-    if matches!(input.source_kind, RenderSourceKind::File | RenderSourceKind::Registered)
-        && input.base_path.is_some()
+    if matches!(
+        input.source_kind,
+        RenderSourceKind::File | RenderSourceKind::Registered
+    ) && input.base_path.is_some()
     {
         return Err(RendererError::invalid_request(
             "input.base_path is only supported for inline sources",
@@ -105,15 +125,21 @@ pub(crate) fn validate_render_input(input: &RenderInput) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn resolve_source(request: &RenderRequest, repository: &TemplateRepository) -> Result<ResolvedSource> {
+pub(crate) fn resolve_source(
+    request: &RenderRequest,
+    repository: &TemplateRepository,
+) -> Result<ResolvedSource> {
     let formatting = FormattingConfig::from_input(&request.input)?;
-    let requested_search_paths = normalize_requested_search_paths(request.input.search_paths.as_deref())?;
+    let requested_search_paths =
+        normalize_requested_search_paths(request.input.search_paths.as_deref())?;
     let effective_search_paths = requested_search_paths
         .clone()
         .unwrap_or_else(|| repository.search_paths.clone());
 
     match request.input.source_kind {
-        RenderSourceKind::Inline => resolve_inline_source(&request.input, effective_search_paths, formatting),
+        RenderSourceKind::Inline => {
+            resolve_inline_source(&request.input, effective_search_paths, formatting)
+        }
         RenderSourceKind::File => resolve_file_source(
             &request.input,
             repository,
@@ -266,12 +292,19 @@ fn build_environment(
             let joined = if parent_path.is_absolute() {
                 parent_path.parent().unwrap_or(parent_path).join(name)
             } else if parent.contains('/') || parent.contains('\\') {
-                parent_path.parent().unwrap_or_else(|| Path::new("")).join(name)
+                parent_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(name)
             } else {
                 return Cow::Borrowed(name);
             };
 
-            Cow::Owned(normalize_template_path(&joined).to_string_lossy().into_owned())
+            Cow::Owned(
+                normalize_template_path(&joined)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         }
     });
 
@@ -284,7 +317,9 @@ fn build_environment(
     }
 
     let markdown_formatting = resolved.formatting.clone();
-    env.add_filter("markdown", move |value: String| markdown_filter(value, &markdown_formatting));
+    env.add_filter("markdown", move |value: String| {
+        markdown_filter(value, &markdown_formatting)
+    });
     env.add_filter("datetime_format", datetime_format_filter);
     env.add_filter("filesize", filesize_filter);
     env.add_filter("json_pretty", json_pretty_filter);
@@ -325,7 +360,10 @@ fn loader_error(name: &str, error: impl std::fmt::Display) -> Error {
     )
 }
 
-fn resolve_existing_template_path(reference: &str, search_paths: &[PathBuf]) -> std::io::Result<Option<PathBuf>> {
+fn resolve_existing_template_path(
+    reference: &str,
+    search_paths: &[PathBuf],
+) -> std::io::Result<Option<PathBuf>> {
     let path = Path::new(reference);
 
     if path.is_absolute() {
@@ -359,7 +397,9 @@ fn parse_context_json(context_json: Option<&str>) -> Result<Value> {
     }
 }
 
-fn normalize_requested_search_paths(search_paths: Option<&[String]>) -> Result<Option<Vec<PathBuf>>> {
+fn normalize_requested_search_paths(
+    search_paths: Option<&[String]>,
+) -> Result<Option<Vec<PathBuf>>> {
     match search_paths {
         Some(paths) => paths
             .iter()
@@ -400,7 +440,10 @@ fn collect_base_candidates(primary: Option<&Path>, search_paths: &[PathBuf]) -> 
     base_candidates
 }
 
-fn collect_registered_base_candidates(logical_name: &str, search_paths: &[PathBuf]) -> Vec<PathBuf> {
+fn collect_registered_base_candidates(
+    logical_name: &str,
+    search_paths: &[PathBuf],
+) -> Vec<PathBuf> {
     let mut base_candidates = Vec::new();
     let logical_parent = Path::new(logical_name)
         .parent()
@@ -452,8 +495,12 @@ fn normalize_template_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn markdown_filter(value: String, formatting: &FormattingConfig) -> std::result::Result<JinjaValue, Error> {
-    let html = markdown::render_markdown_to_html(&value, formatting).map_err(template_filter_error)?;
+fn markdown_filter(
+    value: String,
+    formatting: &FormattingConfig,
+) -> std::result::Result<JinjaValue, Error> {
+    let html =
+        markdown::render_markdown_to_html(&value, formatting).map_err(template_filter_error)?;
     Ok(JinjaValue::from_safe_string(html))
 }
 
@@ -515,18 +562,17 @@ fn template_filter_error(error: RendererError) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::{Arc, Mutex}};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use tempfile::TempDir;
 
     use super::*;
     use crate::{
         api::{
-            ImageFormat,
-            RenderContentKind,
-            RenderInput,
-            RenderRequest,
-            RenderSize,
+            ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize,
             RenderSourceKind,
         },
         cache::FileCache,
@@ -544,7 +590,10 @@ mod tests {
                 syntax_theme: None,
             },
             context_json: context_json.map(ToOwned::to_owned),
-            viewport: RenderSize { width: 320, height: 120 },
+            viewport: RenderSize {
+                width: Some(320),
+                height: Some(120),
+            },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
@@ -608,14 +657,20 @@ mod tests {
             input: RenderInput {
                 source_kind: RenderSourceKind::File,
                 content_kind: RenderContentKind::JinjaHtml,
-                value: template_dir.join("index.jinja").to_string_lossy().into_owned(),
+                value: template_dir
+                    .join("index.jinja")
+                    .to_string_lossy()
+                    .into_owned(),
                 logical_name: None,
                 base_path: None,
                 search_paths: None,
                 syntax_theme: None,
             },
             context_json: None,
-            viewport: RenderSize { width: 320, height: 120 },
+            viewport: RenderSize {
+                width: Some(320),
+                height: Some(120),
+            },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
@@ -629,8 +684,9 @@ mod tests {
         };
 
         let resolved = resolve_source(&request, &repository).expect("resolve file template");
-        let rendered = render_template_markup(&resolved, request.context_json.as_deref(), &repository)
-            .expect("render file template");
+        let rendered =
+            render_template_markup(&resolved, request.context_json.as_deref(), &repository)
+                .expect("render file template");
         assert_eq!(rendered, "<div>Footer</div>");
     }
 
@@ -641,10 +697,7 @@ mod tests {
             Some(r##"{"content":"# Title\n\nHello *world*."}"##),
         );
 
-        assert_eq!(
-            rendered,
-            "<h1>Title</h1>\n<p>Hello <em>world</em>.</p>\n"
-        );
+        assert_eq!(rendered, "<h1>Title</h1>\n<p>Hello <em>world</em>.</p>\n");
     }
 
     #[test]
@@ -659,20 +712,14 @@ mod tests {
 
     #[test]
     fn renders_filesize_filter() {
-        let rendered = render_inline(
-            "{{ bytes | filesize }}",
-            Some(r#"{"bytes":1536}"#),
-        );
+        let rendered = render_inline("{{ bytes | filesize }}", Some(r#"{"bytes":1536}"#));
 
         assert_eq!(rendered, "1.50 KB");
     }
 
     #[test]
     fn renders_to_hex_filter() {
-        let rendered = render_inline(
-            "{{ value | to_hex(width=2) }}",
-            Some(r#"{"value":255}"#),
-        );
+        let rendered = render_inline("{{ value | to_hex(width=2) }}", Some(r#"{"value":255}"#));
 
         assert_eq!(rendered, "0xFF");
     }
@@ -729,7 +776,10 @@ mod tests {
                 syntax_theme: None,
             },
             context_json: None,
-            viewport: RenderSize { width: 320, height: 120 },
+            viewport: RenderSize {
+                width: Some(320),
+                height: Some(120),
+            },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,

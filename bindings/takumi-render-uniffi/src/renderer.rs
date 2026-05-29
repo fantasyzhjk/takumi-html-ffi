@@ -9,7 +9,7 @@ use std::{
 use takumi::{
     GlobalContext,
     layout::Viewport,
-    rendering::{RenderOptions, render as takumi_render, write_image},
+    rendering::{RenderOptions, measure_layout, render as takumi_render, write_image},
     resources::{font::FontResource, image::ImageSource},
 };
 use takumi_html::{
@@ -17,15 +17,12 @@ use takumi_html::{
 };
 
 use crate::{
-    api::{RenderRequest, RenderedImage},
+    api::{MeasuredLayout, RenderRequest, RenderedImage},
     cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
     error::{RendererError, Result},
     markdown::{FormattingConfig, render_markdown_to_html},
     template::{
-        TemplateRepository,
-        normalize_search_path,
-        render_template_markup,
-        resolve_source,
+        TemplateRepository, normalize_search_path, render_template_markup, resolve_source,
         validate_render_input,
     },
 };
@@ -73,7 +70,9 @@ impl Renderer {
     pub fn add_template(&self, name: String, source: String) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(RendererError::invalid_request("template name cannot be empty"));
+            return Err(RendererError::invalid_request(
+                "template name cannot be empty",
+            ));
         }
 
         self.registered_templates
@@ -116,10 +115,18 @@ impl Renderer {
         self.render_request(request)
     }
 
-    pub fn render_to_file(&self, request: RenderRequest, output_path: String) -> Result<RenderedImage> {
+    pub fn render_to_file(
+        &self,
+        request: RenderRequest,
+        output_path: String,
+    ) -> Result<RenderedImage> {
         let rendered = self.render_request(request)?;
         self.write_rendered_image_to_path(&rendered, &output_path)?;
         Ok(rendered)
+    }
+
+    pub fn measure(&self, request: RenderRequest) -> Result<MeasuredLayout> {
+        self.measure_request(request)
     }
 }
 
@@ -133,26 +140,26 @@ impl Renderer {
     }
 
     fn render_request(&self, request: RenderRequest) -> Result<RenderedImage> {
-        validate_request(&request)?;
-
-        let repository = self.template_repository()?;
-        let resolved = resolve_source(&request, &repository)?;
-        let markup = if resolved.requires_jinja() {
-            render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
-        } else {
-            resolved.source_text.clone()
-        };
-        let markup = if resolved.requires_markdown() {
-            render_markdown_to_html(&markup, &resolved.formatting)?
-        } else {
-            markup
-        };
-        let html_result = self.convert_markup(&markup, &request, &resolved.base_candidates)?;
+        let html_result = self.prepare_html_result(&request)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
-        let viewport = Viewport::new((request.viewport.width, request.viewport.height));
         let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
+        let viewport = if request_has_auto_viewport(&request) {
+            let measured = measure_layout(
+                RenderOptions::builder()
+                    .viewport(viewport_from_request(&request))
+                    .node(node.clone())
+                    .fetched_resources(fetched_resources.clone())
+                    .stylesheet(stylesheet.clone())
+                    .global(&global)
+                    .build(),
+            )?;
+            let (width, height) = resolved_layout_size(&measured, request.viewport.clone());
+            Viewport::new((width, height))
+        } else {
+            viewport_from_request(&request)
+        };
         let image = takumi_render(
             RenderOptions::builder()
                 .viewport(viewport)
@@ -171,6 +178,46 @@ impl Renderer {
             height: image.height(),
             content_type: Some(request.format.content_type().to_string()),
         })
+    }
+
+    fn measure_request(&self, request: RenderRequest) -> Result<MeasuredLayout> {
+        let html_result = self.prepare_html_result(&request)?;
+        let fetched_resources = self.preload_fetched_resources(&html_result)?;
+        let stylesheet = html_result.stylesheet();
+        let node = html_result.node;
+        let viewport = viewport_from_request(&request);
+        let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
+        let measured = measure_layout(
+            RenderOptions::builder()
+                .viewport(viewport)
+                .node(node)
+                .fetched_resources(fetched_resources)
+                .stylesheet(stylesheet)
+                .global(&global)
+                .build(),
+        )?;
+        let (width, height) = resolved_layout_size(&measured, request.viewport);
+
+        Ok(MeasuredLayout { width, height })
+    }
+
+    fn prepare_html_result(&self, request: &RenderRequest) -> Result<FromHtmlResult> {
+        validate_request(request)?;
+
+        let repository = self.template_repository()?;
+        let resolved = resolve_source(request, &repository)?;
+        let markup = if resolved.requires_jinja() {
+            render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
+        } else {
+            resolved.source_text.clone()
+        };
+        let markup = if resolved.requires_markdown() {
+            render_markdown_to_html(&markup, &resolved.formatting)?
+        } else {
+            markup
+        };
+
+        self.convert_markup(&markup, request, &resolved.base_candidates)
     }
 
     fn convert_markup(
@@ -232,7 +279,10 @@ impl Renderer {
         from_document_with_options(markup, &options)
     }
 
-    fn preload_fetched_resources(&self, html_result: &FromHtmlResult) -> Result<HashMap<Arc<str>, ImageSource>> {
+    fn preload_fetched_resources(
+        &self,
+        html_result: &FromHtmlResult,
+    ) -> Result<HashMap<Arc<str>, ImageSource>> {
         let mut fetched_resources = HashMap::new();
         let rendered_node_html = html_result.node.to_html();
 
@@ -408,7 +458,11 @@ impl Renderer {
         Ok(())
     }
 
-    fn write_rendered_image_to_path(&self, rendered: &RenderedImage, output_path: &str) -> Result<()> {
+    fn write_rendered_image_to_path(
+        &self,
+        rendered: &RenderedImage,
+        output_path: &str,
+    ) -> Result<()> {
         let output_path = absolute_path(Path::new(output_path.trim()))?;
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
@@ -419,9 +473,9 @@ impl Renderer {
 }
 
 fn validate_request(request: &RenderRequest) -> Result<()> {
-    if request.viewport.width == 0 || request.viewport.height == 0 {
+    if matches!(request.viewport.width, Some(0)) || matches!(request.viewport.height, Some(0)) {
         return Err(RendererError::invalid_request(
-            "viewport width and height must both be greater than zero",
+            "viewport width and height must be greater than zero when provided",
         ));
     }
 
@@ -429,6 +483,27 @@ fn validate_request(request: &RenderRequest) -> Result<()> {
     let _ = FormattingConfig::from_input(&request.input)?;
 
     Ok(())
+}
+
+fn viewport_from_request(request: &RenderRequest) -> Viewport {
+    Viewport::new((request.viewport.width, request.viewport.height))
+}
+
+fn request_has_auto_viewport(request: &RenderRequest) -> bool {
+    request.viewport.width.is_none() || request.viewport.height.is_none()
+}
+
+fn resolved_layout_size(
+    measured: &takumi::rendering::MeasuredNode,
+    viewport: crate::api::RenderSize,
+) -> (u32, u32) {
+    let width = viewport
+        .width
+        .unwrap_or_else(|| measured.width.round().max(0.0) as u32);
+    let height = viewport
+        .height
+        .unwrap_or_else(|| measured.height.round().max(0.0) as u32);
+    (width, height)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -616,16 +691,11 @@ fn state_lock_error(name: &str) -> RendererError {
 mod tests {
     use std::fs;
 
+    use super::{Renderer, collect_stylesheet_resource_urls};
     use crate::api::{
-        ImageFormat,
-        RenderContentKind,
-        RenderInput,
-        RenderRequest,
-        RenderSize,
-        RenderSourceKind,
+        ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize, RenderSourceKind,
     };
     use crate::cache::normalize_existing_path;
-    use super::{Renderer, collect_stylesheet_resource_urls};
     use tempfile::tempdir;
 
     #[cfg(windows)]
@@ -643,7 +713,10 @@ mod tests {
                 syntax_theme: None,
             },
             context_json: None,
-            viewport: RenderSize { width: 20, height: 20 },
+            viewport: RenderSize {
+                width: Some(20),
+                height: Some(20),
+            },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
@@ -690,7 +763,10 @@ mod tests {
             .to_rgba8()
             .pixels()
             .any(|pixel| pixel.0 == [255, 0, 0, 255]);
-        assert!(has_red_pixel, "expected at least one rendered red pixel from linked stylesheet background image");
+        assert!(
+            has_red_pixel,
+            "expected at least one rendered red pixel from linked stylesheet background image"
+        );
     }
 
     #[test]
@@ -714,11 +790,7 @@ mod tests {
         );
 
         let html_result = renderer
-            .convert_markup_with_base(
-                &request.input.value,
-                &request,
-                Some(temp.path()),
-            )
+            .convert_markup_with_base(&request.input.value, &request, Some(temp.path()))
             .expect("convert markup");
 
         let expected = normalize_existing_path(&temp.path().join("relative.png"))
@@ -758,7 +830,10 @@ mod tests {
                 syntax_theme: Some("base16-ocean.dark".to_string()),
             },
             context_json: None,
-            viewport: RenderSize { width: 20, height: 20 },
+            viewport: RenderSize {
+                width: Some(20),
+                height: Some(20),
+            },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
@@ -774,7 +849,10 @@ mod tests {
         let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(image)
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .expect("encode tiny png");
         bytes
     }
