@@ -9,7 +9,7 @@ public enum ImageFormat
     Jpeg,
 }
 
-public sealed record RenderSize(uint Width, uint Height)
+public sealed record RenderSize(uint? Width = null, uint? Height = null)
 {
     internal Generated.RenderSize ToGenerated() => new(Width, Height);
 
@@ -17,151 +17,98 @@ public sealed record RenderSize(uint Width, uint Height)
         new(size.width, size.height);
 }
 
-public enum RenderSourceKind
+public sealed record MeasuredLayout(uint Width, uint Height)
+{
+    internal static MeasuredLayout FromGenerated(Generated.MeasuredLayout layout) =>
+        new(layout.width, layout.height);
+}
+
+public enum TemplateContentKind
+{
+    Markdown,
+    JinjaHtml,
+    JinjaMarkdown,
+}
+
+public sealed record InlineTemplateInput(string Source, string? LogicalName = null)
+{
+    internal Generated.InlineTemplateInput ToGenerated() => new(Source, LogicalName);
+}
+
+public enum TemplateInputKind
 {
     Inline,
     File,
     Registered,
 }
 
-public enum RenderContentKind
+public sealed class TemplateInput
 {
-    Html,
-    Markdown,
-    JinjaHtml,
-    JinjaMarkdown,
+    public required TemplateInputKind Kind { get; init; }
+
+    public InlineTemplateInput? InlineValue { get; init; }
+
+    public string? Value { get; init; }
+
+    public static TemplateInput Inline(InlineTemplateInput input) =>
+        new() { Kind = TemplateInputKind.Inline, InlineValue = input, };
+
+    public static TemplateInput Inline(string source, string? logicalName = null) =>
+        Inline(new InlineTemplateInput(source, logicalName));
+
+    public static TemplateInput File(string path) =>
+        new() { Kind = TemplateInputKind.File, Value = path, };
+
+    public static TemplateInput Registered(string name) =>
+        new() { Kind = TemplateInputKind.Registered, Value = name, };
+
+    internal Generated.TemplateInput ToGenerated() =>
+        Kind switch
+        {
+            TemplateInputKind.Inline
+                => new Generated.TemplateInput.Inline(
+                    (
+                        InlineValue
+                        ?? throw new InvalidOperationException(
+                            "InlineValue is required for inline template input"
+                        )
+                    ).ToGenerated()
+                ),
+            TemplateInputKind.File
+                => new Generated.TemplateInput.File(
+                    Value
+                        ?? throw new InvalidOperationException(
+                            "Value is required for file template input"
+                        )
+                ),
+            TemplateInputKind.Registered
+                => new Generated.TemplateInput.Registered(
+                    Value
+                        ?? throw new InvalidOperationException(
+                            "Value is required for registered template input"
+                        )
+                ),
+            _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null),
+        };
 }
 
-public sealed class RenderInput
+public sealed class RenderTemplateRequest
 {
-    public required RenderSourceKind SourceKind { get; init; }
+    public required TemplateInput Input { get; init; }
 
-    public required RenderContentKind ContentKind { get; init; }
+    public string? ContextJson { get; init; }
 
-    public required string Value { get; init; }
-
-    public string? LogicalName { get; init; }
-
-    public string? BasePath { get; init; }
-
-    public string[]? SearchPaths { get; init; }
+    public required TemplateContentKind ContentKind { get; init; }
 
     public string? SyntaxTheme { get; init; }
 
-    public static RenderInput Inline(
-        RenderContentKind contentKind,
-        string value,
-        string? logicalName = null,
-        string? basePath = null,
-        string[]? searchPaths = null,
-        string? syntaxTheme = null
-    ) =>
-        new()
-        {
-            SourceKind = RenderSourceKind.Inline,
-            ContentKind = contentKind,
-            Value = value,
-            LogicalName = logicalName,
-            BasePath = basePath,
-            SearchPaths = searchPaths,
-            SyntaxTheme = syntaxTheme,
-        };
-
-    public static RenderInput File(
-        RenderContentKind contentKind,
-        string path,
-        string? logicalName = null,
-        string[]? searchPaths = null,
-        string? syntaxTheme = null
-    ) =>
-        new()
-        {
-            SourceKind = RenderSourceKind.File,
-            ContentKind = contentKind,
-            Value = path,
-            LogicalName = logicalName,
-            SearchPaths = searchPaths,
-            SyntaxTheme = syntaxTheme,
-        };
-
-    public static RenderInput Registered(
-        RenderContentKind contentKind,
-        string name,
-        string[]? searchPaths = null,
-        string? syntaxTheme = null
-    ) =>
-        new()
-        {
-            SourceKind = RenderSourceKind.Registered,
-            ContentKind = contentKind,
-            Value = name,
-            SearchPaths = searchPaths,
-            SyntaxTheme = syntaxTheme,
-        };
-
-    public static RenderInput Html(
-        string html,
-        string? logicalName = null,
-        string? basePath = null,
-        string[]? searchPaths = null
-    ) => Inline(RenderContentKind.Html, html, logicalName, basePath, searchPaths);
-
-    public static RenderInput Markdown(
-        string markdown,
-        string? logicalName = null,
-        string? basePath = null,
-        string[]? searchPaths = null,
-        string? syntaxTheme = null
-    ) =>
-        Inline(
-            RenderContentKind.Markdown,
-            markdown,
-            logicalName,
-            basePath,
-            searchPaths,
-            syntaxTheme
-        );
-
-    public static RenderInput Template(
-        string templateSource,
-        string? logicalName = null,
-        string? basePath = null,
-        string[]? searchPaths = null
-    ) => Inline(RenderContentKind.JinjaHtml, templateSource, logicalName, basePath, searchPaths);
-
-    public static RenderInput TemplateMarkdown(
-        string templateSource,
-        string? logicalName = null,
-        string? basePath = null,
-        string[]? searchPaths = null,
-        string? syntaxTheme = null
-    ) =>
-        Inline(
-            RenderContentKind.JinjaMarkdown,
-            templateSource,
-            logicalName,
-            basePath,
-            searchPaths,
-            syntaxTheme
-        );
-
-    internal Generated.RenderInput ToGenerated() =>
-        new(
-            SourceKind.ToGenerated(),
-            ContentKind.ToGenerated(),
-            Value,
-            LogicalName,
-            BasePath,
-            SearchPaths,
-            SyntaxTheme
-        );
+    internal Generated.RenderTemplateRequest ToGenerated() =>
+        new(Input.ToGenerated(), ContextJson, ContentKind.ToGenerated(), SyntaxTheme);
 }
 
-public sealed class RenderRequest
+public sealed class RenderHtmlRequest
 {
-    public required RenderInput Input { get; init; }
-
-    public string? ContextJson { get; init; }
+    public required string Html { get; init; }
 
     public required RenderSize Viewport { get; init; }
 
@@ -171,19 +118,15 @@ public sealed class RenderRequest
 
     public bool? LoadLinkedStylesheets { get; init; }
 
-    public bool? ResolveLocalAssets { get; init; }
-
     public bool? NormalizeWhitespace { get; init; }
 
-    internal Generated.RenderRequest ToGenerated() =>
+    internal Generated.RenderHtmlRequest ToGenerated() =>
         new(
-            Input.ToGenerated(),
-            ContextJson,
+            Html,
             Viewport.ToGenerated(),
             Format.ToGenerated(),
             Quality,
             LoadLinkedStylesheets,
-            ResolveLocalAssets,
             NormalizeWhitespace
         );
 }
@@ -288,46 +231,25 @@ internal static class ImageFormatExtensions
         };
 }
 
-internal static class RenderSourceKindExtensions
+internal static class TemplateContentKindExtensions
 {
-    internal static Generated.RenderSourceKind ToGenerated(this RenderSourceKind sourceKind) =>
-        sourceKind switch
-        {
-            RenderSourceKind.Inline => Generated.RenderSourceKind.Inline,
-            RenderSourceKind.File => Generated.RenderSourceKind.File,
-            RenderSourceKind.Registered => Generated.RenderSourceKind.Registered,
-            _ => throw new ArgumentOutOfRangeException(nameof(sourceKind), sourceKind, null),
-        };
-
-    internal static RenderSourceKind FromGenerated(Generated.RenderSourceKind sourceKind) =>
-        sourceKind switch
-        {
-            Generated.RenderSourceKind.Inline => RenderSourceKind.Inline,
-            Generated.RenderSourceKind.File => RenderSourceKind.File,
-            Generated.RenderSourceKind.Registered => RenderSourceKind.Registered,
-            _ => throw new ArgumentOutOfRangeException(nameof(sourceKind), sourceKind, null),
-        };
-}
-
-internal static class RenderContentKindExtensions
-{
-    internal static Generated.RenderContentKind ToGenerated(this RenderContentKind contentKind) =>
+    internal static Generated.TemplateContentKind ToGenerated(
+        this TemplateContentKind contentKind
+    ) =>
         contentKind switch
         {
-            RenderContentKind.Html => Generated.RenderContentKind.Html,
-            RenderContentKind.Markdown => Generated.RenderContentKind.Markdown,
-            RenderContentKind.JinjaHtml => Generated.RenderContentKind.JinjaHtml,
-            RenderContentKind.JinjaMarkdown => Generated.RenderContentKind.JinjaMarkdown,
+            TemplateContentKind.Markdown => Generated.TemplateContentKind.Markdown,
+            TemplateContentKind.JinjaHtml => Generated.TemplateContentKind.JinjaHtml,
+            TemplateContentKind.JinjaMarkdown => Generated.TemplateContentKind.JinjaMarkdown,
             _ => throw new ArgumentOutOfRangeException(nameof(contentKind), contentKind, null),
         };
 
-    internal static RenderContentKind FromGenerated(Generated.RenderContentKind contentKind) =>
+    internal static TemplateContentKind FromGenerated(Generated.TemplateContentKind contentKind) =>
         contentKind switch
         {
-            Generated.RenderContentKind.Html => RenderContentKind.Html,
-            Generated.RenderContentKind.Markdown => RenderContentKind.Markdown,
-            Generated.RenderContentKind.JinjaHtml => RenderContentKind.JinjaHtml,
-            Generated.RenderContentKind.JinjaMarkdown => RenderContentKind.JinjaMarkdown,
+            Generated.TemplateContentKind.Markdown => TemplateContentKind.Markdown,
+            Generated.TemplateContentKind.JinjaHtml => TemplateContentKind.JinjaHtml,
+            Generated.TemplateContentKind.JinjaMarkdown => TemplateContentKind.JinjaMarkdown,
             _ => throw new ArgumentOutOfRangeException(nameof(contentKind), contentKind, null),
         };
 }

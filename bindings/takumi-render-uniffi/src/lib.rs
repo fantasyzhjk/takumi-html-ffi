@@ -6,10 +6,11 @@ mod renderer;
 mod template;
 
 pub use api::{
-    ImageFormat, MeasuredLayout, RenderContentKind, RenderInput, RenderRequest, RenderSize,
-    RenderSourceKind, RenderedImage,
+    ImageFormat, InlineTemplateInput, MeasuredLayout, RenderHtmlRequest, RenderSize,
+    RenderTemplateRequest, RenderedImage, TemplateContentKind, TemplateInput,
 };
 pub use error::{RendererError, Result};
 pub use renderer::Renderer;
+pub use template::TemplateEngine;
 
 uniffi::setup_scaffolding!();

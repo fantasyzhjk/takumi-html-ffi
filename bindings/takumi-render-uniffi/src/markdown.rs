@@ -13,10 +13,7 @@ use syntect::{
     util::LinesWithEndings,
 };
 
-use crate::{
-    api::RenderInput,
-    error::{RendererError, Result},
-};
+use crate::error::{RendererError, Result};
 
 pub(crate) const DEFAULT_SYNTAX_THEME: &str = "base16-ocean.dark";
 
@@ -29,17 +26,13 @@ pub(crate) struct FormattingConfig {
 }
 
 impl FormattingConfig {
-    pub(crate) fn from_input(input: &RenderInput) -> Result<Self> {
-        Self::new(input.syntax_theme.as_deref())
-    }
-
     pub(crate) fn new(theme: Option<&str>) -> Result<Self> {
         let syntax_theme = match theme {
             Some(theme) => {
                 let trimmed = theme.trim();
                 if trimmed.is_empty() {
                     return Err(RendererError::invalid_request(
-                        "input.syntax_theme cannot be empty",
+                        "request.syntax_theme cannot be empty",
                     ));
                 }
                 trimmed.to_string()
@@ -49,7 +42,7 @@ impl FormattingConfig {
 
         if !THEME_SET.themes.contains_key(&syntax_theme) {
             return Err(RendererError::invalid_request(format!(
-                "input.syntax_theme `{syntax_theme}` is not a supported built-in syntect theme (supported: {})",
+                "request.syntax_theme `{syntax_theme}` is not a supported built-in syntect theme (supported: {})",
                 supported_theme_names().join(", "),
             )));
         }

@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+UNIFFI_BINDGEN_VERSION = "0.31.1"
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
@@ -44,7 +45,7 @@ def tool_binary_path(tool_root: Path, binary_name: str) -> Path:
     return tool_root / "bin" / f"{binary_name}{suffix}"
 
 
-def ensure_local_uniffi_bindgen(version: str = "0.31.1") -> str:
+def ensure_local_uniffi_bindgen(version: str = UNIFFI_BINDGEN_VERSION) -> str:
     tool_root = ROOT_DIR / ".tools" / f"uniffi-bindgen-{version}"
     binary_path = tool_binary_path(tool_root, "uniffi-bindgen")
     if not binary_path.exists():
@@ -248,16 +249,13 @@ def prepare_kotlin(project_dir: Path) -> None:
     generated_resources_dir = project_dir / "Generated" / "Resources" / "native"
     scratch_dir = project_dir / "build" / "uniffi-bindgen" / "kotlin"
 
-    try:
-        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
-    except FileNotFoundError:
-        build_release(manifest_path)
-        native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    build_release(manifest_path)
+    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
 
     clean_dir(scratch_dir)
     try:
         uniffi_bindgen = locate_command(
-            ROOT_DIR / ".tools" / "uniffi-bindgen-0.31.1" / "bin" / "uniffi-bindgen",
+            ROOT_DIR / ".tools" / f"uniffi-bindgen-{UNIFFI_BINDGEN_VERSION}" / "bin" / "uniffi-bindgen",
             Path.home() / ".cargo/bin/uniffi-bindgen",
             "uniffi-bindgen",
         )

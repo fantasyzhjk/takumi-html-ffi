@@ -15,6 +15,10 @@ class Renderer : AutoCloseable {
         invokeVoid { inner.addFontBytes(bytes) }
     }
 
+    fun addFontDirectory(path: String) {
+        invokeVoid { inner.addFontDirectory(path) }
+    }
+
     fun addFontFile(path: String) {
         invokeVoid { inner.addFontFile(path) }
     }
@@ -23,22 +27,17 @@ class Renderer : AutoCloseable {
         invokeVoid { inner.addSearchPath(path) }
     }
 
-    fun addTemplate(name: String, source: String) {
-        invokeVoid { inner.addTemplate(name, source) }
-    }
-
     fun clearCaches() {
         invokeVoid { inner.clearCaches() }
     }
 
-    fun clearTemplates() {
-        invokeVoid { inner.clearTemplates() }
-    }
+    fun measure(request: RenderHtmlRequest): MeasuredLayout =
+        MeasuredLayout.fromGenerated(invoke { inner.measure(request.toGenerated()) })
 
-    fun render(request: RenderRequest): RenderedImage =
+    fun render(request: RenderHtmlRequest): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.render(request.toGenerated()) })
 
-    fun renderToFile(request: RenderRequest, outputPath: String): RenderedImage =
+    fun renderToFile(request: RenderHtmlRequest, outputPath: String): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.renderToFile(request.toGenerated(), outputPath) })
 
     override fun close() {

@@ -2,28 +2,13 @@ using Generated = Takumi.Render.UniFFI.Generated;
 
 namespace Takumi.Render.UniFFI;
 
-public sealed class Renderer : IDisposable
+public sealed class TemplateEngine : IDisposable
 {
-    private readonly Generated.Renderer _inner;
+    private readonly Generated.TemplateEngine _inner;
 
-    public Renderer()
+    public TemplateEngine()
     {
-        _inner = new Generated.Renderer();
-    }
-
-    public void AddFontBytes(byte[] bytes)
-    {
-        Invoke(() => _inner.AddFontBytes(bytes));
-    }
-
-    public void AddFontDirectory(string path)
-    {
-        Invoke(() => _inner.AddFontDirectory(path));
-    }
-
-    public void AddFontFile(string path)
-    {
-        Invoke(() => _inner.AddFontFile(path));
+        _inner = new Generated.TemplateEngine();
     }
 
     public void AddSearchPath(string path)
@@ -31,26 +16,19 @@ public sealed class Renderer : IDisposable
         Invoke(() => _inner.AddSearchPath(path));
     }
 
-    public void ClearCaches()
+    public void AddTemplate(string name, string source)
     {
-        Invoke(_inner.ClearCaches);
+        Invoke(() => _inner.AddTemplate(name, source));
     }
 
-    public MeasuredLayout Measure(RenderHtmlRequest request)
+    public void ClearTemplates()
     {
-        return MeasuredLayout.FromGenerated(Invoke(() => _inner.Measure(request.ToGenerated())));
+        Invoke(_inner.ClearTemplates);
     }
 
-    public RenderedImage Render(RenderHtmlRequest request)
+    public string Render(RenderTemplateRequest request)
     {
-        return RenderedImage.FromGenerated(Invoke(() => _inner.Render(request.ToGenerated())));
-    }
-
-    public RenderedImage RenderToFile(RenderHtmlRequest request, string outputPath)
-    {
-        return RenderedImage.FromGenerated(
-            Invoke(() => _inner.RenderToFile(request.ToGenerated(), outputPath))
-        );
+        return Invoke(() => _inner.Render(request.ToGenerated()));
     }
 
     public void Dispose()

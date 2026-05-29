@@ -6,31 +6,33 @@ use std::{
 use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
 use takumi_render_uniffi::{
-    ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize, RenderSourceKind,
-    Renderer,
+    ImageFormat, InlineTemplateInput, RenderHtmlRequest, RenderSize, RenderTemplateRequest,
+    Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
 };
 use tempfile::TempDir;
 
 #[test]
 fn render_template_string_supports_nested_json_and_search_paths() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
     let template_source =
         fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
-    let request = request(
-        RenderInput {
-            source_kind: RenderSourceKind::Inline,
-            content_kind: RenderContentKind::JinjaHtml,
-            value: template_source,
-            logical_name: Some("inline/index.jinja".to_string()),
-            base_path: None,
-            search_paths: None,
-            syntax_theme: None,
-        },
-        ImageFormat::Png,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::Inline(InlineTemplateInput {
+                source: template_source,
+                logical_name: Some("inline/index.jinja".to_string()),
+            }),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render template string");
 
-    let rendered = renderer.render(request).expect("render template string");
+    let rendered = renderer
+        .render(html_request(html, ImageFormat::Png))
+        .expect("render html output");
 
     assert!(!rendered.bytes.is_empty());
     assert_eq!(rendered.format, ImageFormat::Png);
@@ -43,11 +45,8 @@ fn render_template_string_supports_nested_json_and_search_paths() {
 #[test]
 fn render_inline_html_linear_gradient_background_renders_color_transition() {
     let renderer = Renderer::new();
-    let request = RenderRequest {
-        input: RenderInput {
-            source_kind: RenderSourceKind::Inline,
-            content_kind: RenderContentKind::Html,
-            value: r#"<style>
+    let request = RenderHtmlRequest {
+        html: r#"<style>
       .gradient {
         display: block;
         width: 64px;
@@ -57,13 +56,7 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
     </style>
     <div class="gradient"></div>
 "#
-            .to_string(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: None,
-        },
-        context_json: None,
+        .to_string(),
         viewport: RenderSize {
             width: Some(64),
             height: Some(16),
@@ -71,7 +64,6 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
         format: ImageFormat::Png,
         quality: Some(100),
         load_linked_stylesheets: None,
-        resolve_local_assets: None,
         normalize_whitespace: None,
     };
 
@@ -106,27 +98,23 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
 #[test]
 fn render_template_file_to_file_writes_decodable_webp() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
     let output_path = temp.path().join("out/rendered.webp");
-    let request = request(
-        RenderInput {
-            source_kind: RenderSourceKind::File,
-            content_kind: RenderContentKind::JinjaHtml,
-            value: temp
-                .path()
-                .join("index.jinja")
-                .to_string_lossy()
-                .into_owned(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: None,
-        },
-        ImageFormat::WebP,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::File("index.jinja".to_string()),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render template file");
 
     let rendered = renderer
-        .render_to_file(request, output_path.to_string_lossy().into_owned())
+        .render_to_file(
+            html_request(html, ImageFormat::WebP),
+            output_path.to_string_lossy().into_owned(),
+        )
         .expect("render template file to file");
 
     let output_bytes = fs::read(&output_path).expect("read output file");
@@ -140,27 +128,24 @@ fn render_template_file_to_file_writes_decodable_webp() {
 #[test]
 fn registered_templates_render_by_name() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
     let template_source =
         fs::read_to_string(temp.path().join("index.jinja")).expect("read fixture template");
-    renderer
+    template_engine
         .add_template("cards/profile.jinja".to_string(), template_source)
         .expect("register template");
-    let request = request(
-        RenderInput {
-            source_kind: RenderSourceKind::Registered,
-            content_kind: RenderContentKind::JinjaHtml,
-            value: "cards/profile.jinja".to_string(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: None,
-        },
-        ImageFormat::Png,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::Registered("cards/profile.jinja".to_string()),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render registered template");
 
     let rendered = renderer
-        .render(request)
+        .render(html_request(html, ImageFormat::Png))
         .expect("render template by registered name");
 
     assert!(!rendered.bytes.is_empty());
@@ -169,13 +154,9 @@ fn registered_templates_render_by_name() {
 
 #[test]
 fn font_cache_deduplicates_repeated_font_loads() {
-    let temp = fixture_bundle();
     let renderer = Renderer::new();
     let font_path = font_path();
 
-    renderer
-        .add_search_path(temp.path().to_string_lossy().into_owned())
-        .expect("add search path");
     renderer
         .add_font_file(font_path.to_string_lossy().into_owned())
         .expect("load font first time");
@@ -189,24 +170,20 @@ fn font_cache_deduplicates_repeated_font_loads() {
 #[test]
 fn render_markdown_file_without_context_json_supports_assets() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
-    let request = request_with_context(
-        RenderInput {
-            source_kind: RenderSourceKind::File,
-            content_kind: RenderContentKind::Markdown,
-            value: "post.md".to_string(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: Some("base16-ocean.dark".to_string()),
-        },
-        ImageFormat::Png,
-        None,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::File("post.md".to_string()),
+            TemplateContentKind::Markdown,
+            Some("base16-ocean.dark".to_string()),
+            None,
+        ))
+        .expect("render markdown file");
 
     let rendered = renderer
-        .render(request)
-        .expect("render markdown file without context");
+        .render(html_request(html, ImageFormat::Png))
+        .expect("render markdown html");
 
     assert!(!rendered.bytes.is_empty());
     assert_eq!(rendered.content_type.as_deref(), Some("image/png"));
@@ -219,24 +196,20 @@ fn render_markdown_file_without_context_json_supports_assets() {
 #[test]
 fn render_static_jinja_markdown_file_without_context_json() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
-    let request = request_with_context(
-        RenderInput {
-            source_kind: RenderSourceKind::File,
-            content_kind: RenderContentKind::JinjaMarkdown,
-            value: "static-article.jinja.md".to_string(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: Some("base16-ocean.dark".to_string()),
-        },
-        ImageFormat::Png,
-        None,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::File("static-article.jinja.md".to_string()),
+            TemplateContentKind::JinjaMarkdown,
+            Some("base16-ocean.dark".to_string()),
+            None,
+        ))
+        .expect("render static jinja markdown");
 
     let rendered = renderer
-        .render(request)
-        .expect("render static jinja markdown without context");
+        .render(html_request(html, ImageFormat::Png))
+        .expect("render static jinja markdown html");
 
     assert!(!rendered.bytes.is_empty());
     let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
@@ -248,29 +221,123 @@ fn render_static_jinja_markdown_file_without_context_json() {
 #[test]
 fn render_jinja_markdown_file_supports_nested_json_context() {
     let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
     let renderer = configured_renderer(temp.path());
-    let request = request(
-        RenderInput {
-            source_kind: RenderSourceKind::File,
-            content_kind: RenderContentKind::JinjaMarkdown,
-            value: "article.jinja.md".to_string(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: Some("base16-ocean.dark".to_string()),
-        },
-        ImageFormat::Png,
-    );
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::File("article.jinja.md".to_string()),
+            TemplateContentKind::JinjaMarkdown,
+            Some("base16-ocean.dark".to_string()),
+            Some(sample_context_json()),
+        ))
+        .expect("render jinja markdown");
 
     let rendered = renderer
-        .render(request)
-        .expect("render jinja markdown with nested json context");
+        .render(html_request(html, ImageFormat::Png))
+        .expect("render jinja markdown html");
 
     assert!(!rendered.bytes.is_empty());
     let decoded = image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
         .expect("decode png bytes");
     assert_eq!(decoded.width(), 64);
     assert_eq!(decoded.height(), 64);
+}
+
+#[test]
+fn renderer_search_paths_resolve_relative_assets_from_root_only() {
+    let temp = fixture_bundle();
+    fs::create_dir_all(temp.path().join("pages")).expect("create pages dir");
+    fs::write(
+        temp.path().join("pages/root-relative.jinja"),
+        r#"<!doctype html>
+<html>
+  <body>
+    <img src="pages/nested-only.png" width="1" height="1" />
+  </body>
+</html>
+"#,
+    )
+    .expect("write root-relative template");
+    fs::write(
+        temp.path().join("pages/template-relative.jinja"),
+        r#"<!doctype html>
+<html>
+  <body>
+    <img src="nested-only.png" width="1" height="1" />
+  </body>
+</html>
+"#,
+    )
+    .expect("write template-relative template");
+    fs::copy(
+        temp.path().join("pixel.png"),
+        temp.path().join("pages/nested-only.png"),
+    )
+    .expect("copy nested pixel");
+
+    let template_engine = configured_template_engine(temp.path());
+    let renderer = configured_renderer(temp.path());
+
+    let root_relative_html = template_engine
+        .render(template_request(
+            TemplateInput::File("pages/root-relative.jinja".to_string()),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render root-relative template");
+    let rendered = renderer
+        .render(html_request(root_relative_html, ImageFormat::Png))
+        .expect("render root-relative html");
+    assert!(!rendered.bytes.is_empty());
+
+    let template_relative_html = template_engine
+        .render(template_request(
+            TemplateInput::File("pages/template-relative.jinja".to_string()),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render template-relative template");
+    let error = renderer
+        .render(html_request(template_relative_html, ImageFormat::Png))
+        .expect_err("template-directory-relative asset should fail");
+    assert!(error.to_string().contains("failed to read asset"));
+}
+
+#[test]
+fn render_without_fixed_height_uses_measured_content_height() {
+    let temp = fixture_bundle();
+    let template_engine = configured_template_engine(temp.path());
+    let renderer = configured_renderer(temp.path());
+    let html = template_engine
+        .render(template_request(
+            TemplateInput::File("index.jinja".to_string()),
+            TemplateContentKind::JinjaHtml,
+            None,
+            Some(sample_context_json()),
+        ))
+        .expect("render template");
+    let mut request = html_request(html, ImageFormat::Png);
+    request.viewport.height = None;
+
+    let measured = renderer
+        .measure(request.clone())
+        .expect("measure auto-height layout");
+    let rendered = renderer.render(request).expect("render auto-height layout");
+
+    assert_eq!(measured.width, 64);
+    assert_eq!(measured.height, 64);
+    assert_eq!(rendered.width, 64);
+    assert_eq!(rendered.height, 64);
+}
+
+fn configured_template_engine(search_path: &Path) -> std::sync::Arc<TemplateEngine> {
+    let engine = TemplateEngine::new();
+    engine
+        .add_search_path(search_path.to_string_lossy().into_owned())
+        .expect("add search path");
+    engine
 }
 
 fn configured_renderer(search_path: &Path) -> std::sync::Arc<Renderer> {
@@ -284,18 +351,23 @@ fn configured_renderer(search_path: &Path) -> std::sync::Arc<Renderer> {
     renderer
 }
 
-fn request(input: RenderInput, format: ImageFormat) -> RenderRequest {
-    request_with_context(input, format, Some(sample_context_json()))
-}
-
-fn request_with_context(
-    input: RenderInput,
-    format: ImageFormat,
+fn template_request(
+    input: TemplateInput,
+    content_kind: TemplateContentKind,
+    syntax_theme: Option<String>,
     context_json: Option<String>,
-) -> RenderRequest {
-    RenderRequest {
+) -> RenderTemplateRequest {
+    RenderTemplateRequest {
         input,
         context_json,
+        content_kind,
+        syntax_theme,
+    }
+}
+
+fn html_request(html: String, format: ImageFormat) -> RenderHtmlRequest {
+    RenderHtmlRequest {
+        html,
         viewport: RenderSize {
             width: Some(64),
             height: Some(64),
@@ -303,42 +375,8 @@ fn request_with_context(
         format,
         quality: Some(100),
         load_linked_stylesheets: None,
-        resolve_local_assets: None,
         normalize_whitespace: None,
     }
-}
-
-#[test]
-fn render_without_fixed_height_uses_measured_content_height() {
-    let temp = fixture_bundle();
-    let renderer = configured_renderer(temp.path());
-    let mut request = request(
-        RenderInput {
-            source_kind: RenderSourceKind::File,
-            content_kind: RenderContentKind::JinjaHtml,
-            value: temp
-                .path()
-                .join("index.jinja")
-                .to_string_lossy()
-                .into_owned(),
-            logical_name: None,
-            base_path: None,
-            search_paths: None,
-            syntax_theme: None,
-        },
-        ImageFormat::Png,
-    );
-    request.viewport.height = None;
-
-    let measured = renderer
-        .measure(request.clone())
-        .expect("measure auto-height layout");
-    let rendered = renderer.render(request).expect("render auto-height layout");
-
-    assert_eq!(measured.width, 64);
-    assert_eq!(measured.height, 64);
-    assert_eq!(rendered.width, 64);
-    assert_eq!(rendered.height, 64);
 }
 
 fn sample_context_json() -> String {
@@ -410,9 +448,16 @@ This screenshot is rendered from **Markdown** without any `context_json`.
 ![Pixel](pixel.png)
 
 ```rust
-let request = RenderRequest {
-    context_json: None,
-    ..Default::default()
+let request = RenderHtmlRequest {
+    html,
+    viewport: RenderSize {
+        width: Some(64),
+        height: Some(64),
+    },
+    format: ImageFormat::Png,
+    quality: Some(100),
+    load_linked_stylesheets: None,
+    normalize_whitespace: None,
 };
 ```
 "#,

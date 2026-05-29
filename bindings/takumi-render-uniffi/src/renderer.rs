@@ -17,21 +17,16 @@ use takumi_html::{
 };
 
 use crate::{
-    api::{MeasuredLayout, RenderRequest, RenderedImage},
+    api::{MeasuredLayout, RenderHtmlRequest, RenderSize, RenderedImage},
     cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
     error::{RendererError, Result},
-    markdown::{FormattingConfig, render_markdown_to_html},
-    template::{
-        TemplateRepository, normalize_search_path, render_template_markup, resolve_source,
-        validate_render_input,
-    },
+    template::normalize_search_path,
 };
 
 #[derive(uniffi::Object)]
 pub struct Renderer {
     global: Mutex<GlobalContext>,
     search_paths: RwLock<Vec<PathBuf>>,
-    registered_templates: RwLock<HashMap<String, String>>,
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
 }
@@ -41,7 +36,6 @@ impl Default for Renderer {
         Self {
             global: Mutex::new(GlobalContext::default()),
             search_paths: RwLock::new(Vec::new()),
-            registered_templates: RwLock::new(HashMap::new()),
             file_cache: Arc::new(Mutex::new(FileCache::default())),
             font_cache: Mutex::new(FontCache::default()),
         }
@@ -67,35 +61,19 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn add_template(&self, name: String, source: String) -> Result<()> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(RendererError::invalid_request(
-                "template name cannot be empty",
-            ));
-        }
-
-        self.registered_templates
-            .write()
-            .map_err(|_| state_lock_error("registered_templates"))?
-            .insert(name.to_string(), source);
-        Ok(())
-    }
-
-    pub fn clear_templates(&self) -> Result<()> {
-        self.registered_templates
-            .write()
-            .map_err(|_| state_lock_error("registered_templates"))?
-            .clear();
-        Ok(())
-    }
-
     pub fn add_font_file(&self, path: String) -> Result<()> {
         self.add_font_file_impl(Path::new(path.trim()))
     }
 
     pub fn add_font_bytes(&self, bytes: Vec<u8>) -> Result<()> {
         self.add_font_bytes_impl(bytes)
+    }
+
+    pub fn add_font_directory(&self, path: String) -> Result<()> {
+        for font_path in collect_font_files(Path::new(path.trim()))? {
+            self.add_font_file_impl(&font_path)?;
+        }
+        Ok(())
     }
 
     pub fn clear_caches(&self) -> Result<()> {
@@ -111,13 +89,13 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn render(&self, request: RenderRequest) -> Result<RenderedImage> {
+    pub fn render(&self, request: RenderHtmlRequest) -> Result<RenderedImage> {
         self.render_request(request)
     }
 
     pub fn render_to_file(
         &self,
-        request: RenderRequest,
+        request: RenderHtmlRequest,
         output_path: String,
     ) -> Result<RenderedImage> {
         let rendered = self.render_request(request)?;
@@ -125,7 +103,7 @@ impl Renderer {
         Ok(rendered)
     }
 
-    pub fn measure(&self, request: RenderRequest) -> Result<MeasuredLayout> {
+    pub fn measure(&self, request: RenderHtmlRequest) -> Result<MeasuredLayout> {
         self.measure_request(request)
     }
 }
@@ -139,7 +117,7 @@ impl Renderer {
             .unwrap_or_default()
     }
 
-    fn render_request(&self, request: RenderRequest) -> Result<RenderedImage> {
+    fn render_request(&self, request: RenderHtmlRequest) -> Result<RenderedImage> {
         let html_result = self.prepare_html_result(&request)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
@@ -180,7 +158,7 @@ impl Renderer {
         })
     }
 
-    fn measure_request(&self, request: RenderRequest) -> Result<MeasuredLayout> {
+    fn measure_request(&self, request: RenderHtmlRequest) -> Result<MeasuredLayout> {
         let html_result = self.prepare_html_result(&request)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
@@ -201,29 +179,21 @@ impl Renderer {
         Ok(MeasuredLayout { width, height })
     }
 
-    fn prepare_html_result(&self, request: &RenderRequest) -> Result<FromHtmlResult> {
+    fn prepare_html_result(&self, request: &RenderHtmlRequest) -> Result<FromHtmlResult> {
         validate_request(request)?;
 
-        let repository = self.template_repository()?;
-        let resolved = resolve_source(request, &repository)?;
-        let markup = if resolved.requires_jinja() {
-            render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
-        } else {
-            resolved.source_text.clone()
-        };
-        let markup = if resolved.requires_markdown() {
-            render_markdown_to_html(&markup, &resolved.formatting)?
-        } else {
-            markup
-        };
-
-        self.convert_markup(&markup, request, &resolved.base_candidates)
+        let search_paths = self
+            .search_paths
+            .read()
+            .map_err(|_| state_lock_error("search_paths"))?
+            .clone();
+        self.convert_markup(&request.html, request, &search_paths)
     }
 
     fn convert_markup(
         &self,
         markup: &str,
-        request: &RenderRequest,
+        request: &RenderHtmlRequest,
         base_candidates: &[PathBuf],
     ) -> Result<FromHtmlResult> {
         if base_candidates.is_empty() {
@@ -248,7 +218,7 @@ impl Renderer {
         match first_retryable_error {
             Some(error) => Err(error.into()),
             None => Err(RendererError::invalid_request(
-                "no usable base path candidates were available for relative assets",
+                "no usable search paths were available for relative assets",
             )),
         }
     }
@@ -256,21 +226,13 @@ impl Renderer {
     fn convert_markup_with_base(
         &self,
         markup: &str,
-        request: &RenderRequest,
+        request: &RenderHtmlRequest,
         base_path: Option<&Path>,
     ) -> std::result::Result<FromHtmlResult, HtmlError> {
-        let local_asset_mode = requested_local_asset_mode(request);
         let mut options = FromHtmlOptions::new()
             .load_linked_stylesheets(request.load_linked_stylesheets.unwrap_or(true))
-            .normalize_whitespace(request.normalize_whitespace.unwrap_or(true));
-
-        options = match local_asset_mode {
-            RequestedLocalAssetMode::PreserveRaw => options.resolve_local_assets(false),
-            RequestedLocalAssetMode::InlineDataUri => options.resolve_local_assets(true),
-            RequestedLocalAssetMode::CacheByAbsolutePath => {
-                options.local_asset_mode(LocalAssetMode::AbsolutePath)
-            }
-        };
+            .normalize_whitespace(request.normalize_whitespace.unwrap_or(true))
+            .local_asset_mode(LocalAssetMode::AbsolutePath);
 
         if let Some(base_path) = base_path {
             options = options.with_base_path(base_path);
@@ -345,7 +307,11 @@ impl Renderer {
         Ok(image)
     }
 
-    fn encode_image(&self, image: &image::RgbaImage, request: &RenderRequest) -> Result<Vec<u8>> {
+    fn encode_image(
+        &self,
+        image: &image::RgbaImage,
+        request: &RenderHtmlRequest,
+    ) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         write_image(
             Cow::Borrowed(image),
@@ -355,25 +321,6 @@ impl Renderer {
         )
         .map_err(|error| RendererError::encode(error.to_string()))?;
         Ok(bytes)
-    }
-
-    fn template_repository(&self) -> Result<TemplateRepository> {
-        let search_paths = self
-            .search_paths
-            .read()
-            .map_err(|_| state_lock_error("search_paths"))?
-            .clone();
-        let registered_templates = self
-            .registered_templates
-            .read()
-            .map_err(|_| state_lock_error("registered_templates"))?
-            .clone();
-
-        Ok(TemplateRepository {
-            search_paths,
-            registered_templates,
-            file_cache: Arc::clone(&self.file_cache),
-        })
     }
 
     fn add_font_file_impl(&self, path: &Path) -> Result<()> {
@@ -472,30 +419,27 @@ impl Renderer {
     }
 }
 
-fn validate_request(request: &RenderRequest) -> Result<()> {
+fn validate_request(request: &RenderHtmlRequest) -> Result<()> {
     if matches!(request.viewport.width, Some(0)) || matches!(request.viewport.height, Some(0)) {
         return Err(RendererError::invalid_request(
             "viewport width and height must be greater than zero when provided",
         ));
     }
 
-    validate_render_input(&request.input)?;
-    let _ = FormattingConfig::from_input(&request.input)?;
-
     Ok(())
 }
 
-fn viewport_from_request(request: &RenderRequest) -> Viewport {
+fn viewport_from_request(request: &RenderHtmlRequest) -> Viewport {
     Viewport::new((request.viewport.width, request.viewport.height))
 }
 
-fn request_has_auto_viewport(request: &RenderRequest) -> bool {
+fn request_has_auto_viewport(request: &RenderHtmlRequest) -> bool {
     request.viewport.width.is_none() || request.viewport.height.is_none()
 }
 
 fn resolved_layout_size(
     measured: &takumi::rendering::MeasuredNode,
-    viewport: crate::api::RenderSize,
+    viewport: RenderSize,
 ) -> (u32, u32) {
     let width = viewport
         .width
@@ -504,21 +448,6 @@ fn resolved_layout_size(
         .height
         .unwrap_or_else(|| measured.height.round().max(0.0) as u32);
     (width, height)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RequestedLocalAssetMode {
-    PreserveRaw,
-    InlineDataUri,
-    CacheByAbsolutePath,
-}
-
-fn requested_local_asset_mode(request: &RenderRequest) -> RequestedLocalAssetMode {
-    match request.resolve_local_assets {
-        Some(true) => RequestedLocalAssetMode::InlineDataUri,
-        Some(false) => RequestedLocalAssetMode::PreserveRaw,
-        None => RequestedLocalAssetMode::CacheByAbsolutePath,
-    }
 }
 
 fn collect_stylesheet_resource_urls(stylesheets: &[String]) -> Vec<String> {
@@ -683,6 +612,51 @@ fn can_retry_with_next_base(error: &HtmlError) -> bool {
     )
 }
 
+fn collect_font_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let normalized = normalize_existing_path(root)?;
+    if !normalized.is_dir() {
+        return Err(RendererError::invalid_request(format!(
+            "font directory `{}` is not a directory",
+            normalized.display()
+        )));
+    }
+
+    let mut font_files = Vec::new();
+    collect_font_files_recursive(&normalized, &mut font_files)?;
+    font_files.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+    Ok(font_files)
+}
+
+fn collect_font_files_recursive(dir: &Path, font_files: &mut Vec<PathBuf>) -> Result<()> {
+    let mut entries = fs::read_dir(dir)?.collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| {
+        left.path()
+            .to_string_lossy()
+            .cmp(&right.path().to_string_lossy())
+    });
+
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_font_files_recursive(&path, font_files)?;
+            continue;
+        }
+
+        if is_supported_font_file(&path) {
+            font_files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_supported_font_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .is_some_and(|ext| matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc"))
+}
+
 fn state_lock_error(name: &str) -> RendererError {
     RendererError::Render(format!("renderer state lock `{name}` was poisoned"))
 }
@@ -691,28 +665,17 @@ fn state_lock_error(name: &str) -> RendererError {
 mod tests {
     use std::fs;
 
-    use super::{Renderer, collect_stylesheet_resource_urls};
-    use crate::api::{
-        ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize, RenderSourceKind,
-    };
+    use super::{Renderer, collect_font_files, collect_stylesheet_resource_urls};
+    use crate::api::{ImageFormat, RenderHtmlRequest, RenderSize};
     use crate::cache::normalize_existing_path;
     use tempfile::tempdir;
 
     #[cfg(windows)]
     use super::is_local_cached_asset_reference;
 
-    fn inline_html_request(markup: &str) -> RenderRequest {
-        RenderRequest {
-            input: RenderInput {
-                source_kind: RenderSourceKind::Inline,
-                content_kind: RenderContentKind::Html,
-                value: markup.to_string(),
-                logical_name: Some("inline.html".to_string()),
-                base_path: None,
-                search_paths: None,
-                syntax_theme: None,
-            },
-            context_json: None,
+    fn inline_html_request(markup: &str) -> RenderHtmlRequest {
+        RenderHtmlRequest {
+            html: markup.to_string(),
             viewport: RenderSize {
                 width: Some(20),
                 height: Some(20),
@@ -720,7 +683,6 @@ mod tests {
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
-            resolve_local_assets: None,
             normalize_whitespace: None,
         }
     }
@@ -742,7 +704,36 @@ mod tests {
     }
 
     #[test]
-    fn default_render_request_loads_local_images_via_fetched_resources() {
+    fn add_font_directory_scans_recursively_and_deduplicates_by_hash() {
+        let temp = tempdir().expect("tempdir");
+        let nested = temp.path().join("nested");
+        fs::create_dir_all(&nested).expect("create nested dir");
+        let font_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/fonts/Rubik-Regular.ttf");
+        fs::copy(&font_path, temp.path().join("a.ttf")).expect("copy font");
+        fs::copy(&font_path, nested.join("b.ttf")).expect("copy font");
+        fs::write(temp.path().join("ignore.txt"), b"noop").expect("write ignored file");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_font_directory(temp.path().to_string_lossy().into_owned())
+            .expect("load font directory");
+
+        assert_eq!(renderer.debug_font_cache_entries(), 1);
+    }
+
+    #[test]
+    fn collect_font_files_ignores_non_font_extensions() {
+        let temp = tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("fonts")).expect("create dir");
+        fs::write(temp.path().join("fonts/ignore.txt"), b"noop").expect("write text");
+
+        let collected = collect_font_files(temp.path()).expect("collect fonts");
+        assert!(collected.is_empty());
+    }
+
+    #[test]
+    fn renderer_search_paths_load_local_images_via_fetched_resources() {
         let temp = tempdir().expect("tempdir");
         fs::write(temp.path().join("relative.png"), tiny_png_bytes()).expect("write image");
 
@@ -770,7 +761,61 @@ mod tests {
     }
 
     #[test]
-    fn default_render_request_preloads_local_images_referenced_from_linked_stylesheets() {
+    fn renderer_retries_search_paths_for_relative_assets() {
+        let temp = tempdir().expect("tempdir");
+        let first_root = temp.path().join("first");
+        let second_root = temp.path().join("second");
+        fs::create_dir_all(&first_root).expect("create first root");
+        fs::create_dir_all(&second_root).expect("create second root");
+        fs::write(second_root.join("relative.png"), tiny_png_bytes()).expect("write image");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_search_path(first_root.to_string_lossy().into_owned())
+            .expect("add first search path");
+        renderer
+            .add_search_path(second_root.to_string_lossy().into_owned())
+            .expect("add second search path");
+
+        let rendered = renderer
+            .render(inline_html_request(
+                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+            ))
+            .expect("render from fallback search path");
+
+        assert!(!rendered.bytes.is_empty());
+    }
+
+    #[test]
+    fn persistent_image_store_reuses_absolute_path_images() {
+        let temp = tempdir().expect("tempdir");
+        let image_path = temp.path().join("relative.png");
+        fs::write(&image_path, tiny_png_bytes()).expect("write image");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_search_path(temp.path().to_string_lossy().into_owned())
+            .expect("add search path");
+        let request = inline_html_request(
+            r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+        );
+
+        renderer
+            .render(request.clone())
+            .expect("render local image the first time");
+        let absolute_reference = normalize_existing_path(&image_path)
+            .expect("normalize image path")
+            .to_string_lossy()
+            .replace('\\', "/");
+        fs::remove_file(&image_path).expect("remove source image");
+
+        renderer
+            .load_cached_image(&absolute_reference)
+            .expect("load image from persistent store");
+    }
+
+    #[test]
+    fn renderer_preloads_local_images_referenced_from_linked_stylesheets() {
         let temp = tempdir().expect("tempdir");
         fs::create_dir_all(temp.path().join("styles")).expect("create styles dir");
         fs::write(temp.path().join("relative.png"), tiny_png_bytes()).expect("write image");
@@ -790,7 +835,7 @@ mod tests {
         );
 
         let html_result = renderer
-            .convert_markup_with_base(&request.input.value, &request, Some(temp.path()))
+            .convert_markup_with_base(&request.html, &request, Some(temp.path()))
             .expect("convert markup");
 
         let expected = normalize_existing_path(&temp.path().join("relative.png"))
@@ -818,31 +863,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_syntax_theme_for_plain_html_input() {
-        let request = RenderRequest {
-            input: RenderInput {
-                source_kind: RenderSourceKind::Inline,
-                content_kind: RenderContentKind::Html,
-                value: "<div />".to_string(),
-                logical_name: None,
-                base_path: None,
-                search_paths: None,
-                syntax_theme: Some("base16-ocean.dark".to_string()),
-            },
-            context_json: None,
+    fn rejects_zero_viewport_dimensions() {
+        let request = RenderHtmlRequest {
+            html: "<div />".to_string(),
             viewport: RenderSize {
-                width: Some(20),
+                width: Some(0),
                 height: Some(20),
             },
             format: ImageFormat::Png,
             quality: None,
             load_linked_stylesheets: None,
-            resolve_local_assets: None,
             normalize_whitespace: None,
         };
 
-        let error = super::validate_request(&request).expect_err("reject theme on html");
-        assert!(error.to_string().contains("input.syntax_theme"));
+        let error = super::validate_request(&request).expect_err("reject zero width");
+        assert!(error.to_string().contains("viewport width"));
     }
 
     fn tiny_png_bytes() -> Vec<u8> {

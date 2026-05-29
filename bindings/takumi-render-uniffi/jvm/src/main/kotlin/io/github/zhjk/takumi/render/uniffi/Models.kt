@@ -1,13 +1,15 @@
 package io.github.zhjk.takumi.render.uniffi
 
 import io.github.zhjk.takumi.render.uniffi.generated.ImageFormat as GeneratedImageFormat
-import io.github.zhjk.takumi.render.uniffi.generated.RenderContentKind as GeneratedRenderContentKind
-import io.github.zhjk.takumi.render.uniffi.generated.RenderInput as GeneratedRenderInput
-import io.github.zhjk.takumi.render.uniffi.generated.RenderRequest as GeneratedRenderRequest
-import io.github.zhjk.takumi.render.uniffi.generated.RenderSourceKind as GeneratedRenderSourceKind
+import io.github.zhjk.takumi.render.uniffi.generated.InlineTemplateInput as GeneratedInlineTemplateInput
+import io.github.zhjk.takumi.render.uniffi.generated.MeasuredLayout as GeneratedMeasuredLayout
+import io.github.zhjk.takumi.render.uniffi.generated.RenderHtmlRequest as GeneratedRenderHtmlRequest
 import io.github.zhjk.takumi.render.uniffi.generated.RenderSize as GeneratedRenderSize
+import io.github.zhjk.takumi.render.uniffi.generated.RenderTemplateRequest as GeneratedRenderTemplateRequest
 import io.github.zhjk.takumi.render.uniffi.generated.RenderedImage as GeneratedRenderedImage
 import io.github.zhjk.takumi.render.uniffi.generated.RendererException as GeneratedRendererException
+import io.github.zhjk.takumi.render.uniffi.generated.TemplateContentKind as GeneratedTemplateContentKind
+import io.github.zhjk.takumi.render.uniffi.generated.TemplateInput as GeneratedTemplateInput
 
 enum class ImageFormat {
     PNG,
@@ -31,203 +33,152 @@ enum class ImageFormat {
 }
 
 class RenderSize @JvmOverloads constructor(
-    var width: Int = 1,
-    var height: Int = 1,
+    var width: Int? = null,
+    var height: Int? = null,
 ) {
     internal fun toGenerated(): GeneratedRenderSize {
-        require(width > 0) { "width must be greater than zero" }
-        require(height > 0) { "height must be greater than zero" }
-        return GeneratedRenderSize(width.toUInt(), height.toUInt())
+        val widthValue = width?.also { require(it > 0) { "width must be greater than zero" } }?.toUInt()
+        val heightValue = height?.also { require(it > 0) { "height must be greater than zero" } }?.toUInt()
+        return GeneratedRenderSize(widthValue, heightValue)
     }
 
     internal companion object {
         fun fromGenerated(size: GeneratedRenderSize): RenderSize = RenderSize(
-            width = size.width.toInt(),
-            height = size.height.toInt(),
+            width = size.width?.toInt(),
+            height = size.height?.toInt(),
         )
     }
 }
 
-enum class RenderSourceKind {
-    INLINE,
-    FILE,
-    REGISTERED,
-    ;
-
-    internal fun toGenerated(): GeneratedRenderSourceKind = when (this) {
-        INLINE -> GeneratedRenderSourceKind.INLINE
-        FILE -> GeneratedRenderSourceKind.FILE
-        REGISTERED -> GeneratedRenderSourceKind.REGISTERED
-    }
-
-    companion object {
-        internal fun fromGenerated(value: GeneratedRenderSourceKind): RenderSourceKind = when (value) {
-            GeneratedRenderSourceKind.INLINE -> INLINE
-            GeneratedRenderSourceKind.FILE -> FILE
-            GeneratedRenderSourceKind.REGISTERED -> REGISTERED
-        }
+data class MeasuredLayout(
+    val width: Int,
+    val height: Int,
+) {
+    internal companion object {
+        fun fromGenerated(layout: GeneratedMeasuredLayout): MeasuredLayout = MeasuredLayout(
+            width = layout.width.toInt(),
+            height = layout.height.toInt(),
+        )
     }
 }
 
-enum class RenderContentKind {
-    HTML,
+enum class TemplateContentKind {
     MARKDOWN,
     JINJA_HTML,
     JINJA_MARKDOWN,
     ;
 
-    internal fun toGenerated(): GeneratedRenderContentKind = when (this) {
-        HTML -> GeneratedRenderContentKind.HTML
-        MARKDOWN -> GeneratedRenderContentKind.MARKDOWN
-        JINJA_HTML -> GeneratedRenderContentKind.JINJA_HTML
-        JINJA_MARKDOWN -> GeneratedRenderContentKind.JINJA_MARKDOWN
+    internal fun toGenerated(): GeneratedTemplateContentKind = when (this) {
+        MARKDOWN -> GeneratedTemplateContentKind.MARKDOWN
+        JINJA_HTML -> GeneratedTemplateContentKind.JINJA_HTML
+        JINJA_MARKDOWN -> GeneratedTemplateContentKind.JINJA_MARKDOWN
     }
 
     companion object {
-        internal fun fromGenerated(value: GeneratedRenderContentKind): RenderContentKind = when (value) {
-            GeneratedRenderContentKind.HTML -> HTML
-            GeneratedRenderContentKind.MARKDOWN -> MARKDOWN
-            GeneratedRenderContentKind.JINJA_HTML -> JINJA_HTML
-            GeneratedRenderContentKind.JINJA_MARKDOWN -> JINJA_MARKDOWN
+        internal fun fromGenerated(value: GeneratedTemplateContentKind): TemplateContentKind = when (value) {
+            GeneratedTemplateContentKind.MARKDOWN -> MARKDOWN
+            GeneratedTemplateContentKind.JINJA_HTML -> JINJA_HTML
+            GeneratedTemplateContentKind.JINJA_MARKDOWN -> JINJA_MARKDOWN
         }
     }
 }
 
-class RenderInput @JvmOverloads constructor(
-    var sourceKind: RenderSourceKind,
-    var contentKind: RenderContentKind,
-    var value: String,
+data class InlineTemplateInput @JvmOverloads constructor(
+    var source: String,
     var logicalName: String? = null,
-    var basePath: String? = null,
-    var searchPaths: List<String>? = null,
-    var syntaxTheme: String? = null,
 ) {
-    internal fun toGenerated(): GeneratedRenderInput = GeneratedRenderInput(
-        sourceKind = sourceKind.toGenerated(),
-        contentKind = contentKind.toGenerated(),
-        value = value,
+    internal fun toGenerated(): GeneratedInlineTemplateInput = GeneratedInlineTemplateInput(
+        source = source,
         logicalName = logicalName,
-        basePath = basePath,
-        searchPaths = searchPaths,
-        syntaxTheme = syntaxTheme,
     )
+}
+
+enum class TemplateInputKind {
+    INLINE,
+    FILE,
+    REGISTERED,
+}
+
+class TemplateInput private constructor(
+    var kind: TemplateInputKind,
+    var inlineValue: InlineTemplateInput? = null,
+    var value: String? = null,
+) {
+    internal fun toGenerated(): GeneratedTemplateInput = when (kind) {
+        TemplateInputKind.INLINE -> GeneratedTemplateInput.Inline(
+            inlineValue?.toGenerated()
+                ?: throw IllegalStateException("inlineValue is required for inline template input"),
+        )
+        TemplateInputKind.FILE -> GeneratedTemplateInput.File(
+            value ?: throw IllegalStateException("value is required for file template input"),
+        )
+        TemplateInputKind.REGISTERED -> GeneratedTemplateInput.Registered(
+            value ?: throw IllegalStateException("value is required for registered template input"),
+        )
+    }
 
     companion object {
         @JvmStatic
         @JvmOverloads
-        fun inline(
-            contentKind: RenderContentKind,
-            value: String,
-            logicalName: String? = null,
-            basePath: String? = null,
-            searchPaths: List<String>? = null,
-            syntaxTheme: String? = null,
-        ): RenderInput = RenderInput(
-            sourceKind = RenderSourceKind.INLINE,
-            contentKind = contentKind,
-            value = value,
-            logicalName = logicalName,
-            basePath = basePath,
-            searchPaths = searchPaths,
-            syntaxTheme = syntaxTheme,
+        fun inline(source: String, logicalName: String? = null): TemplateInput = TemplateInput(
+            kind = TemplateInputKind.INLINE,
+            inlineValue = InlineTemplateInput(source, logicalName),
         )
 
         @JvmStatic
-        @JvmOverloads
-        fun file(
-            contentKind: RenderContentKind,
-            path: String,
-            logicalName: String? = null,
-            searchPaths: List<String>? = null,
-            syntaxTheme: String? = null,
-        ): RenderInput = RenderInput(
-            sourceKind = RenderSourceKind.FILE,
-            contentKind = contentKind,
+        fun inline(input: InlineTemplateInput): TemplateInput = TemplateInput(
+            kind = TemplateInputKind.INLINE,
+            inlineValue = input,
+        )
+
+        @JvmStatic
+        fun file(path: String): TemplateInput = TemplateInput(
+            kind = TemplateInputKind.FILE,
             value = path,
-            logicalName = logicalName,
-            searchPaths = searchPaths,
-            syntaxTheme = syntaxTheme,
         )
 
         @JvmStatic
-        @JvmOverloads
-        fun registered(
-            contentKind: RenderContentKind,
-            name: String,
-            searchPaths: List<String>? = null,
-            syntaxTheme: String? = null,
-        ): RenderInput = RenderInput(
-            sourceKind = RenderSourceKind.REGISTERED,
-            contentKind = contentKind,
+        fun registered(name: String): TemplateInput = TemplateInput(
+            kind = TemplateInputKind.REGISTERED,
             value = name,
-            searchPaths = searchPaths,
-            syntaxTheme = syntaxTheme,
         )
-
-        @JvmStatic
-        @JvmOverloads
-        fun html(
-            html: String,
-            logicalName: String? = null,
-            basePath: String? = null,
-            searchPaths: List<String>? = null,
-        ): RenderInput = inline(RenderContentKind.HTML, html, logicalName, basePath, searchPaths)
-
-        @JvmStatic
-        @JvmOverloads
-        fun markdown(
-            markdown: String,
-            logicalName: String? = null,
-            basePath: String? = null,
-            searchPaths: List<String>? = null,
-            syntaxTheme: String? = null,
-        ): RenderInput = inline(RenderContentKind.MARKDOWN, markdown, logicalName, basePath, searchPaths, syntaxTheme)
-
-        @JvmStatic
-        @JvmOverloads
-        fun template(
-            templateSource: String,
-            logicalName: String? = null,
-            basePath: String? = null,
-            searchPaths: List<String>? = null,
-        ): RenderInput = inline(RenderContentKind.JINJA_HTML, templateSource, logicalName, basePath, searchPaths)
-
-        @JvmStatic
-        @JvmOverloads
-        fun templateMarkdown(
-            templateSource: String,
-            logicalName: String? = null,
-            basePath: String? = null,
-            searchPaths: List<String>? = null,
-            syntaxTheme: String? = null,
-        ): RenderInput = inline(RenderContentKind.JINJA_MARKDOWN, templateSource, logicalName, basePath, searchPaths, syntaxTheme)
     }
 }
 
-class RenderRequest @JvmOverloads constructor(
-    var input: RenderInput,
+class RenderTemplateRequest @JvmOverloads constructor(
+    var input: TemplateInput,
     var contextJson: String? = null,
+    var contentKind: TemplateContentKind,
+    var syntaxTheme: String? = null,
+) {
+    internal fun toGenerated(): GeneratedRenderTemplateRequest = GeneratedRenderTemplateRequest(
+        input = input.toGenerated(),
+        contextJson = contextJson,
+        contentKind = contentKind.toGenerated(),
+        syntaxTheme = syntaxTheme,
+    )
+}
+
+class RenderHtmlRequest @JvmOverloads constructor(
+    var html: String,
     var viewport: RenderSize = RenderSize(),
     var format: ImageFormat = ImageFormat.PNG,
 ) {
     var quality: Int? = null
     var loadLinkedStylesheets: Boolean? = null
-    var resolveLocalAssets: Boolean? = null
     var normalizeWhitespace: Boolean? = null
 
-    internal fun toGenerated(): GeneratedRenderRequest {
+    internal fun toGenerated(): GeneratedRenderHtmlRequest {
         val qualityValue = quality?.also {
             require(it in 0..255) { "quality must be between 0 and 255" }
         }?.toUByte()
 
-        return GeneratedRenderRequest(
-            input = input.toGenerated(),
-            contextJson = contextJson,
+        return GeneratedRenderHtmlRequest(
+            html = html,
             viewport = viewport.toGenerated(),
             format = format.toGenerated(),
             quality = qualityValue,
             loadLinkedStylesheets = loadLinkedStylesheets,
-            resolveLocalAssets = resolveLocalAssets,
             normalizeWhitespace = normalizeWhitespace,
         )
     }

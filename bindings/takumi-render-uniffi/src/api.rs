@@ -28,32 +28,26 @@ pub struct RenderSize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct RenderInput {
-    pub source_kind: RenderSourceKind,
-    pub content_kind: RenderContentKind,
-    pub value: String,
+pub struct InlineTemplateInput {
+    pub source: String,
     pub logical_name: Option<String>,
-    pub base_path: Option<String>,
-    pub search_paths: Option<Vec<String>>,
-    pub syntax_theme: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum TemplateInput {
+    Inline(InlineTemplateInput),
+    File(String),
+    Registered(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum RenderSourceKind {
-    Inline,
-    File,
-    Registered,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum RenderContentKind {
-    Html,
+pub enum TemplateContentKind {
     Markdown,
     JinjaHtml,
     JinjaMarkdown,
 }
 
-impl RenderContentKind {
+impl TemplateContentKind {
     pub(crate) fn requires_jinja(self) -> bool {
         matches!(self, Self::JinjaHtml | Self::JinjaMarkdown)
     }
@@ -64,14 +58,20 @@ impl RenderContentKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct RenderRequest {
-    pub input: RenderInput,
+pub struct RenderTemplateRequest {
+    pub input: TemplateInput,
     pub context_json: Option<String>,
+    pub content_kind: TemplateContentKind,
+    pub syntax_theme: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RenderHtmlRequest {
+    pub html: String,
     pub viewport: RenderSize,
     pub format: ImageFormat,
     pub quality: Option<u8>,
     pub load_linked_stylesheets: Option<bool>,
-    pub resolve_local_assets: Option<bool>,
     pub normalize_whitespace: Option<bool>,
 }
 

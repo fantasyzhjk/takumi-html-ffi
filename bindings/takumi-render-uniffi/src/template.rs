@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use minijinja::Value as JinjaValue;
@@ -10,11 +10,114 @@ use minijinja::{AutoEscape, Environment, Error, ErrorKind};
 use serde_json::Value;
 
 use crate::{
-    api::{RenderContentKind, RenderInput, RenderRequest, RenderSourceKind},
+    api::{InlineTemplateInput, RenderTemplateRequest, TemplateContentKind, TemplateInput},
     cache::{FileCache, normalize_existing_path},
     error::{RendererError, Result},
-    markdown::{self, FormattingConfig},
+    markdown::{self, FormattingConfig, render_markdown_to_html},
 };
+
+#[derive(uniffi::Object)]
+pub struct TemplateEngine {
+    search_paths: RwLock<Vec<PathBuf>>,
+    registered_templates: RwLock<HashMap<String, String>>,
+    file_cache: Arc<Mutex<FileCache>>,
+}
+
+impl Default for TemplateEngine {
+    fn default() -> Self {
+        Self {
+            search_paths: RwLock::new(Vec::new()),
+            registered_templates: RwLock::new(HashMap::new()),
+            file_cache: Arc::new(Mutex::new(FileCache::default())),
+        }
+    }
+}
+
+#[uniffi::export]
+impl TemplateEngine {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn add_search_path(&self, path: String) -> Result<()> {
+        let normalized = normalize_search_path(&path)?;
+        let mut search_paths = self
+            .search_paths
+            .write()
+            .map_err(|_| state_lock_error("search_paths"))?;
+        if !search_paths.iter().any(|existing| existing == &normalized) {
+            search_paths.push(normalized);
+        }
+        Ok(())
+    }
+
+    pub fn add_template(&self, name: String, source: String) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RendererError::invalid_request(
+                "template name cannot be empty",
+            ));
+        }
+
+        self.registered_templates
+            .write()
+            .map_err(|_| state_lock_error("registered_templates"))?
+            .insert(name.to_string(), source);
+        Ok(())
+    }
+
+    pub fn clear_templates(&self) -> Result<()> {
+        self.registered_templates
+            .write()
+            .map_err(|_| state_lock_error("registered_templates"))?
+            .clear();
+        Ok(())
+    }
+
+    pub fn render(&self, request: RenderTemplateRequest) -> Result<String> {
+        self.render_request(request)
+    }
+}
+
+impl TemplateEngine {
+    fn render_request(&self, request: RenderTemplateRequest) -> Result<String> {
+        validate_render_request(&request)?;
+
+        let repository = self.template_repository()?;
+        let resolved = resolve_source(&request, &repository)?;
+        let markup = if resolved.requires_jinja() {
+            render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
+        } else {
+            resolved.source_text.clone()
+        };
+
+        if resolved.requires_markdown() {
+            render_markdown_to_html(&markup, &resolved.formatting)
+        } else {
+            Ok(markup)
+        }
+    }
+
+    fn template_repository(&self) -> Result<TemplateRepository> {
+        let search_paths = self
+            .search_paths
+            .read()
+            .map_err(|_| state_lock_error("search_paths"))?
+            .clone();
+        let registered_templates = self
+            .registered_templates
+            .read()
+            .map_err(|_| state_lock_error("registered_templates"))?
+            .clone();
+
+        Ok(TemplateRepository {
+            search_paths,
+            registered_templates,
+            file_cache: Arc::clone(&self.file_cache),
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TemplateRepository {
@@ -23,14 +126,20 @@ pub(crate) struct TemplateRepository {
     pub file_cache: Arc<Mutex<FileCache>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TemplateSourceKind {
+    Inline,
+    File,
+    Registered,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedSource {
-    pub content_kind: RenderContentKind,
-    pub source_kind: RenderSourceKind,
+    pub content_kind: TemplateContentKind,
+    source_kind: TemplateSourceKind,
     pub source_text: String,
     pub logical_name: String,
     pub search_paths: Vec<PathBuf>,
-    pub base_candidates: Vec<PathBuf>,
     pub formatting: FormattingConfig,
 }
 
@@ -63,95 +172,29 @@ pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
     Ok(normalized)
 }
 
-pub(crate) fn validate_render_input(input: &RenderInput) -> Result<()> {
-    if input
-        .logical_name
-        .as_deref()
-        .is_some_and(|name| name.trim().is_empty())
-    {
-        return Err(RendererError::invalid_request(
-            "input.logical_name cannot be empty when provided",
-        ));
-    }
-
-    if input
-        .base_path
-        .as_deref()
-        .is_some_and(|path| path.trim().is_empty())
-    {
-        return Err(RendererError::invalid_request(
-            "input.base_path cannot be empty when provided",
-        ));
-    }
-
-    if matches!(
-        input.source_kind,
-        RenderSourceKind::File | RenderSourceKind::Registered
-    ) && input.value.trim().is_empty()
-    {
-        return Err(RendererError::invalid_request(
-            "input.value cannot be empty for file or registered sources",
-        ));
-    }
-
-    if matches!(
-        input.source_kind,
-        RenderSourceKind::File | RenderSourceKind::Registered
-    ) && input.logical_name.is_some()
-    {
-        return Err(RendererError::invalid_request(
-            "input.logical_name is only supported for inline sources",
-        ));
-    }
-
-    if matches!(
-        input.source_kind,
-        RenderSourceKind::File | RenderSourceKind::Registered
-    ) && input.base_path.is_some()
-    {
-        return Err(RendererError::invalid_request(
-            "input.base_path is only supported for inline sources",
-        ));
-    }
-
-    if matches!(input.content_kind, RenderContentKind::Html) && input.syntax_theme.is_some() {
-        return Err(RendererError::invalid_request(
-            "input.syntax_theme is only supported for Markdown and Jinja content",
-        ));
-    }
-
-    let _ = normalize_requested_search_paths(input.search_paths.as_deref())?;
-    let _ = normalize_optional_base_path(input.base_path.as_deref())?;
-    Ok(())
-}
-
 pub(crate) fn resolve_source(
-    request: &RenderRequest,
+    request: &RenderTemplateRequest,
     repository: &TemplateRepository,
 ) -> Result<ResolvedSource> {
-    let formatting = FormattingConfig::from_input(&request.input)?;
-    let requested_search_paths =
-        normalize_requested_search_paths(request.input.search_paths.as_deref())?;
-    let effective_search_paths = requested_search_paths
-        .clone()
-        .unwrap_or_else(|| repository.search_paths.clone());
+    let formatting = FormattingConfig::new(request.syntax_theme.as_deref())?;
+    let search_paths = repository.search_paths.clone();
 
-    match request.input.source_kind {
-        RenderSourceKind::Inline => {
-            resolve_inline_source(&request.input, effective_search_paths, formatting)
+    match &request.input {
+        TemplateInput::Inline(input) => {
+            resolve_inline_source(input, request.content_kind, search_paths, formatting)
         }
-        RenderSourceKind::File => resolve_file_source(
-            &request.input,
+        TemplateInput::File(path) => resolve_file_source(
+            path,
+            request.content_kind,
             repository,
-            requested_search_paths,
-            effective_search_paths,
+            search_paths,
             formatting,
         ),
-        RenderSourceKind::Registered => resolve_registered_source(
-            &request.input,
+        TemplateInput::Registered(name) => resolve_registered_source(
+            name,
+            request.content_kind,
             repository,
-            requested_search_paths,
-            effective_search_paths,
+            search_paths,
             formatting,
         ),
     }
@@ -168,8 +211,45 @@ pub(crate) fn render_template_markup(
     Ok(template.render(context)?)
 }
 
+fn validate_render_request(request: &RenderTemplateRequest) -> Result<()> {
+    validate_template_input(&request.input)?;
+    let _ = FormattingConfig::new(request.syntax_theme.as_deref())?;
+    Ok(())
+}
+
+fn validate_template_input(input: &TemplateInput) -> Result<()> {
+    match input {
+        TemplateInput::Inline(input) => {
+            if input
+                .logical_name
+                .as_deref()
+                .is_some_and(|name| name.trim().is_empty())
+            {
+                return Err(RendererError::invalid_request(
+                    "input.logical_name cannot be empty when provided",
+                ));
+            }
+        }
+        TemplateInput::File(path) => {
+            if path.trim().is_empty() {
+                return Err(RendererError::invalid_request("input.file cannot be empty"));
+            }
+        }
+        TemplateInput::Registered(name) => {
+            if name.trim().is_empty() {
+                return Err(RendererError::invalid_request(
+                    "input.registered cannot be empty",
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn resolve_inline_source(
-    input: &RenderInput,
+    input: &InlineTemplateInput,
+    content_kind: TemplateContentKind,
     search_paths: Vec<PathBuf>,
     formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
@@ -179,30 +259,26 @@ fn resolve_inline_source(
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| default_inline_logical_name(input.content_kind).to_string());
-    let base_path = normalize_optional_base_path(input.base_path.as_deref())?;
-    let base_candidates = collect_base_candidates(base_path.as_deref(), &search_paths);
+        .unwrap_or_else(|| default_inline_logical_name(content_kind).to_string());
 
     Ok(ResolvedSource {
-        content_kind: input.content_kind,
-        source_kind: input.source_kind,
-        source_text: input.value.clone(),
+        content_kind,
+        source_kind: TemplateSourceKind::Inline,
+        source_text: input.source.clone(),
         logical_name,
         search_paths,
-        base_candidates,
         formatting,
     })
 }
 
 fn resolve_file_source(
-    input: &RenderInput,
+    reference: &str,
+    content_kind: TemplateContentKind,
     repository: &TemplateRepository,
-    requested_search_paths: Option<Vec<PathBuf>>,
     search_paths: Vec<PathBuf>,
     formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
-    let reference = input.value.trim();
-    let path = resolve_existing_template_path(reference, &search_paths)?
+    let path = resolve_existing_template_path(reference.trim(), &search_paths)?
         .ok_or_else(|| RendererError::template_not_found(reference))?;
     let source_text = {
         let mut cache = repository
@@ -212,48 +288,36 @@ fn resolve_file_source(
         cache.read_string(&path)?
     };
 
-    let base_candidates = match requested_search_paths {
-        Some(paths) => paths,
-        None => collect_base_candidates(path.parent(), &repository.search_paths),
-    };
-
     Ok(ResolvedSource {
-        content_kind: input.content_kind,
-        source_kind: input.source_kind,
+        content_kind,
+        source_kind: TemplateSourceKind::File,
         source_text,
         logical_name: path.to_string_lossy().into_owned(),
         search_paths,
-        base_candidates,
         formatting,
     })
 }
 
 fn resolve_registered_source(
-    input: &RenderInput,
+    name: &str,
+    content_kind: TemplateContentKind,
     repository: &TemplateRepository,
-    requested_search_paths: Option<Vec<PathBuf>>,
     search_paths: Vec<PathBuf>,
     formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
-    let name = input.value.trim();
+    let name = name.trim();
     let source_text = repository
         .registered_templates
         .get(name)
         .cloned()
         .ok_or_else(|| RendererError::template_not_found(name))?;
 
-    let base_candidates = match requested_search_paths {
-        Some(paths) => paths,
-        None => collect_registered_base_candidates(name, &repository.search_paths),
-    };
-
     Ok(ResolvedSource {
-        content_kind: input.content_kind,
-        source_kind: input.source_kind,
+        content_kind,
+        source_kind: TemplateSourceKind::Registered,
         source_text,
         logical_name: name.to_string(),
         search_paths,
-        base_candidates,
         formatting,
     })
 }
@@ -271,7 +335,7 @@ fn build_environment(
     );
     let search_paths = resolved.search_paths.clone();
     let file_cache = Arc::clone(&repository.file_cache);
-    let escape_html = matches!(resolved.content_kind, RenderContentKind::JinjaHtml);
+    let escape_html = matches!(resolved.content_kind, TemplateContentKind::JinjaHtml);
 
     let mut env = Environment::new();
     env.set_auto_escape_callback(move |_| {
@@ -312,7 +376,7 @@ fn build_environment(
         env.add_template_owned(name, source)?;
     }
 
-    if resolved.source_kind != RenderSourceKind::Registered {
+    if resolved.source_kind != TemplateSourceKind::Registered {
         env.add_template_owned(resolved.logical_name.clone(), resolved.source_text.clone())?;
     }
 
@@ -397,83 +461,11 @@ fn parse_context_json(context_json: Option<&str>) -> Result<Value> {
     }
 }
 
-fn normalize_requested_search_paths(
-    search_paths: Option<&[String]>,
-) -> Result<Option<Vec<PathBuf>>> {
-    match search_paths {
-        Some(paths) => paths
-            .iter()
-            .map(|path| normalize_search_path(path))
-            .collect::<Result<Vec<_>>>()
-            .map(Some),
-        None => Ok(None),
-    }
-}
-
-fn normalize_optional_base_path(base_path: Option<&str>) -> Result<Option<PathBuf>> {
-    let Some(base_path) = base_path else {
-        return Ok(None);
-    };
-
-    let normalized = normalize_existing_path(Path::new(base_path.trim()))?;
-    if !normalized.is_dir() {
-        return Err(RendererError::invalid_request(format!(
-            "input.base_path `{}` is not a directory",
-            normalized.display()
-        )));
-    }
-
-    Ok(Some(normalized))
-}
-
-fn collect_base_candidates(primary: Option<&Path>, search_paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut base_candidates = Vec::new();
-
-    if let Some(primary) = primary {
-        push_unique_path(&mut base_candidates, primary.to_path_buf());
-    }
-
-    for path in search_paths {
-        push_unique_path(&mut base_candidates, path.clone());
-    }
-
-    base_candidates
-}
-
-fn collect_registered_base_candidates(
-    logical_name: &str,
-    search_paths: &[PathBuf],
-) -> Vec<PathBuf> {
-    let mut base_candidates = Vec::new();
-    let logical_parent = Path::new(logical_name)
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty());
-
-    if let Some(logical_parent) = logical_parent {
-        for search_path in search_paths {
-            push_unique_path(&mut base_candidates, search_path.join(logical_parent));
-        }
-    }
-
-    for search_path in search_paths {
-        push_unique_path(&mut base_candidates, search_path.clone());
-    }
-
-    base_candidates
-}
-
-fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
-    if !paths.iter().any(|existing| existing == &candidate) {
-        paths.push(candidate);
-    }
-}
-
-fn default_inline_logical_name(content_kind: RenderContentKind) -> &'static str {
+fn default_inline_logical_name(content_kind: TemplateContentKind) -> &'static str {
     match content_kind {
-        RenderContentKind::Html => "inline.html",
-        RenderContentKind::Markdown => "inline.md",
-        RenderContentKind::JinjaHtml => "inline.html.jinja",
-        RenderContentKind::JinjaMarkdown => "inline.md.jinja",
+        TemplateContentKind::Markdown => "inline.md",
+        TemplateContentKind::JinjaHtml => "inline.html.jinja",
+        TemplateContentKind::JinjaMarkdown => "inline.md.jinja",
     }
 }
 
@@ -560,60 +552,48 @@ fn template_filter_error(error: RendererError) -> Error {
     Error::new(ErrorKind::InvalidOperation, error.to_string())
 }
 
+fn state_lock_error(name: &str) -> RendererError {
+    RendererError::Render(format!("template engine state lock `{name}` was poisoned"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
+        fs,
         sync::{Arc, Mutex},
     };
 
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{
-        api::{
-            ImageFormat, RenderContentKind, RenderInput, RenderRequest, RenderSize,
-            RenderSourceKind,
-        },
-        cache::FileCache,
-    };
+    use crate::{api::RenderTemplateRequest, cache::FileCache};
 
-    fn render_inline(template_source: &str, context_json: Option<&str>) -> String {
-        let request = RenderRequest {
-            input: RenderInput {
-                source_kind: RenderSourceKind::Inline,
-                content_kind: RenderContentKind::JinjaHtml,
-                value: template_source.to_string(),
-                logical_name: Some("inline.jinja".to_string()),
-                base_path: None,
-                search_paths: None,
-                syntax_theme: None,
-            },
+    fn render_inline(
+        content_kind: TemplateContentKind,
+        template_source: &str,
+        context_json: Option<&str>,
+    ) -> String {
+        let engine = TemplateEngine::default();
+        let request = RenderTemplateRequest {
+            input: TemplateInput::Inline(InlineTemplateInput {
+                source: template_source.to_string(),
+                logical_name: Some("inline/index.jinja".to_string()),
+            }),
             context_json: context_json.map(ToOwned::to_owned),
-            viewport: RenderSize {
-                width: Some(320),
-                height: Some(120),
-            },
-            format: ImageFormat::Png,
-            quality: None,
-            load_linked_stylesheets: None,
-            resolve_local_assets: None,
-            normalize_whitespace: None,
-        };
-        let repository = TemplateRepository {
-            search_paths: Vec::new(),
-            registered_templates: HashMap::new(),
-            file_cache: Arc::new(Mutex::new(FileCache::default())),
+            content_kind,
+            syntax_theme: Some("base16-ocean.dark".to_string()),
         };
 
-        let resolved = resolve_source(&request, &repository).expect("resolve inline template");
-        render_template_markup(&resolved, request.context_json.as_deref(), &repository)
+        engine
+            .render_request(request)
             .expect("render inline template")
     }
 
     #[test]
     fn renders_nested_json_from_inline_template() {
         let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
             "<div>{{ user.profile.display_name }}</div>",
             Some(r#"{"user":{"profile":{"display_name":"Takumi"}}}"#),
         );
@@ -623,9 +603,20 @@ mod tests {
 
     #[test]
     fn renders_static_inline_template_without_context_json() {
-        let rendered = render_inline("<div>Takumi</div>", None);
+        let rendered = render_inline(TemplateContentKind::JinjaHtml, "<div>Takumi</div>", None);
 
         assert_eq!(rendered, "<div>Takumi</div>");
+    }
+
+    #[test]
+    fn renders_plain_markdown_without_template_state() {
+        let rendered = render_inline(
+            TemplateContentKind::Markdown,
+            "# Title\n\nHello *world*.",
+            None,
+        );
+
+        assert_eq!(rendered, "<h1>Title</h1>\n<p>Hello <em>world</em>.</p>\n");
     }
 
     #[test]
@@ -644,55 +635,34 @@ mod tests {
     fn resolves_relative_includes_from_template_file_directory() {
         let temp = TempDir::new().expect("tempdir");
         let template_dir = temp.path().join("templates");
-        std::fs::create_dir_all(template_dir.join("partials")).expect("create template dir");
-        std::fs::write(
+        fs::create_dir_all(template_dir.join("partials")).expect("create template dir");
+        fs::write(
             template_dir.join("index.jinja"),
             "<div>{% include './partials/footer.jinja' %}</div>",
         )
         .expect("write index template");
-        std::fs::write(template_dir.join("partials/footer.jinja"), "Footer")
+        fs::write(template_dir.join("partials/footer.jinja"), "Footer")
             .expect("write footer template");
 
-        let request = RenderRequest {
-            input: RenderInput {
-                source_kind: RenderSourceKind::File,
-                content_kind: RenderContentKind::JinjaHtml,
-                value: template_dir
-                    .join("index.jinja")
-                    .to_string_lossy()
-                    .into_owned(),
-                logical_name: None,
-                base_path: None,
-                search_paths: None,
+        let engine = TemplateEngine::default();
+        engine
+            .add_search_path(template_dir.to_string_lossy().into_owned())
+            .expect("add search path");
+        let rendered = engine
+            .render(RenderTemplateRequest {
+                input: TemplateInput::File("index.jinja".to_string()),
+                context_json: None,
+                content_kind: TemplateContentKind::JinjaHtml,
                 syntax_theme: None,
-            },
-            context_json: None,
-            viewport: RenderSize {
-                width: Some(320),
-                height: Some(120),
-            },
-            format: ImageFormat::Png,
-            quality: None,
-            load_linked_stylesheets: None,
-            resolve_local_assets: None,
-            normalize_whitespace: None,
-        };
-        let repository = TemplateRepository {
-            search_paths: Vec::new(),
-            registered_templates: HashMap::new(),
-            file_cache: Arc::new(Mutex::new(FileCache::default())),
-        };
-
-        let resolved = resolve_source(&request, &repository).expect("resolve file template");
-        let rendered =
-            render_template_markup(&resolved, request.context_json.as_deref(), &repository)
-                .expect("render file template");
+            })
+            .expect("render file template");
         assert_eq!(rendered, "<div>Footer</div>");
     }
 
     #[test]
     fn renders_markdown_filter() {
         let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
             "{{ content | markdown }}",
             Some(r##"{"content":"# Title\n\nHello *world*."}"##),
         );
@@ -703,6 +673,7 @@ mod tests {
     #[test]
     fn renders_datetime_format_filter() {
         let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
             "{{ ts | datetime_format(\"%Y-%m-%d %H:%M:%S\") }}",
             Some(r#"{"ts":0}"#),
         );
@@ -712,14 +683,22 @@ mod tests {
 
     #[test]
     fn renders_filesize_filter() {
-        let rendered = render_inline("{{ bytes | filesize }}", Some(r#"{"bytes":1536}"#));
+        let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
+            "{{ bytes | filesize }}",
+            Some(r#"{"bytes":1536}"#),
+        );
 
         assert_eq!(rendered, "1.50 KB");
     }
 
     #[test]
     fn renders_to_hex_filter() {
-        let rendered = render_inline("{{ value | to_hex(width=2) }}", Some(r#"{"value":255}"#));
+        let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
+            "{{ value | to_hex(width=2) }}",
+            Some(r#"{"value":255}"#),
+        );
 
         assert_eq!(rendered, "0xFF");
     }
@@ -727,6 +706,7 @@ mod tests {
     #[test]
     fn renders_json_pretty_filter() {
         let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
             "{{ data | json_pretty }}",
             Some(r#"{"data":{"name":"Takumi","enabled":true}}"#),
         );
@@ -740,6 +720,7 @@ mod tests {
     #[test]
     fn renders_highlight_filter() {
         let rendered = render_inline(
+            TemplateContentKind::JinjaHtml,
             "{{ code | highlight(\"rust\") }}",
             Some(r#"{"code":"let x = 1;"}"#),
         );
@@ -752,42 +733,25 @@ mod tests {
     }
 
     #[test]
-    fn resolve_source_uses_registered_logical_parent_before_renderer_search_paths() {
-        let temp = TempDir::new().expect("tempdir");
-        std::fs::create_dir_all(temp.path().join("cards")).expect("create cards dir");
-
+    fn resolve_source_supports_registered_templates() {
         let repository = TemplateRepository {
-            search_paths: vec![temp.path().to_path_buf()],
+            search_paths: Vec::new(),
             registered_templates: HashMap::from([(
                 "cards/profile.jinja".to_string(),
-                "<img src=\"pixel.png\" />".to_string(),
+                "<div>{{ name }}</div>".to_string(),
             )]),
             file_cache: Arc::new(Mutex::new(FileCache::default())),
         };
 
-        let request = RenderRequest {
-            input: RenderInput {
-                source_kind: RenderSourceKind::Registered,
-                content_kind: RenderContentKind::JinjaHtml,
-                value: "cards/profile.jinja".to_string(),
-                logical_name: None,
-                base_path: None,
-                search_paths: None,
-                syntax_theme: None,
-            },
+        let request = RenderTemplateRequest {
+            input: TemplateInput::Registered("cards/profile.jinja".to_string()),
             context_json: None,
-            viewport: RenderSize {
-                width: Some(320),
-                height: Some(120),
-            },
-            format: ImageFormat::Png,
-            quality: None,
-            load_linked_stylesheets: None,
-            resolve_local_assets: None,
-            normalize_whitespace: None,
+            content_kind: TemplateContentKind::JinjaHtml,
+            syntax_theme: None,
         };
 
         let resolved = resolve_source(&request, &repository).expect("resolve source");
-        assert_eq!(resolved.base_candidates[0], temp.path().join("cards"));
+        assert_eq!(resolved.logical_name, "cards/profile.jinja");
+        assert_eq!(resolved.source_text, "<div>{{ name }}</div>");
     }
 }
