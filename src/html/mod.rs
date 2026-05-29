@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn resolves_local_image_sources_to_data_uris() {
         let temp = tempdir();
-        write(temp.path().join("relative.png"), &tiny_png_bytes());
+        write(temp.path().join("relative.png"), tiny_png_bytes());
 
         let options = FromHtmlOptions::new()
             .with_base_path(temp.path())
@@ -409,7 +409,7 @@ mod tests {
     fn resolves_local_image_sources_to_absolute_paths() {
         let temp = tempdir();
         let image_path = temp.path().join("relative.png");
-        write(&image_path, &tiny_png_bytes());
+        write(&image_path, tiny_png_bytes());
         let expected = image_path
             .canonicalize()
             .expect("canonicalize image")
@@ -436,7 +436,7 @@ mod tests {
             temp.path().join("styles/linked.css"),
             ".panel { background-image: url('../relative.png'); }",
         );
-        write(temp.path().join("relative.png"), &tiny_png_bytes());
+        write(temp.path().join("relative.png"), tiny_png_bytes());
 
         let options = FromHtmlOptions::new()
             .with_base_path(temp.path())
@@ -461,7 +461,7 @@ mod tests {
             styles_dir.join("linked.css"),
             ".panel { background-image: url('../relative.png'); }",
         );
-        write(&image_path, &tiny_png_bytes());
+        write(&image_path, tiny_png_bytes());
         let expected = image_path
             .canonicalize()
             .expect("canonicalize image")
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn rewrites_local_css_urls_inside_inline_style_blocks() {
         let temp = tempdir();
-        write(temp.path().join("relative.png"), &tiny_png_bytes());
+        write(temp.path().join("relative.png"), tiny_png_bytes());
 
         let result = from_document_with_options(
 			r#"<!doctype html><html><head><style>.panel { background-image: url('./relative.png'); }</style></head><body><div class="panel"></div></body></html>"#,
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn rewrites_local_css_urls_inside_inline_style_attributes() {
         let temp = tempdir();
-        write(temp.path().join("relative.png"), &tiny_png_bytes());
+        write(temp.path().join("relative.png"), tiny_png_bytes());
 
         let result = from_document_with_options(
 			r#"<!doctype html><html><body><div style="background-image: url('./relative.png')"></div></body></html>"#,
@@ -519,7 +519,7 @@ mod tests {
     fn rewrites_local_css_urls_inside_inline_style_attributes_to_absolute_paths() {
         let temp = tempdir();
         let image_path = temp.path().join("relative.png");
-        write(&image_path, &tiny_png_bytes());
+        write(&image_path, tiny_png_bytes());
         let expected = image_path
             .canonicalize()
             .expect("canonicalize image")

@@ -31,7 +31,7 @@ final class RendererJavaTest {
                     TemplateContentKind.JINJA_HTML,
                     null));
             var request = new RenderHtmlRequest(
-                html,
+                HtmlInput.inline(html),
                 new RenderSize(320, 180),
                 ImageFormat.PNG);
             var image = renderer.render(request);
@@ -76,7 +76,7 @@ final class RendererJavaTest {
                         null));
                 var image = renderer.render(
                     new RenderHtmlRequest(
-                        html,
+                        HtmlInput.inline(html),
                         new RenderSize(32, 32),
                         ImageFormat.PNG));
 
@@ -111,7 +111,7 @@ final class RendererJavaTest {
                     TemplateContentKind.JINJA_HTML,
                     null));
             var request = new RenderHtmlRequest(
-                html,
+                HtmlInput.inline(html),
                 new RenderSize(240, 120),
                 ImageFormat.PNG);
             var image = renderer.renderToFile(request, outputPath.toString());

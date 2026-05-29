@@ -17,7 +17,7 @@ use takumi_html::{
 };
 
 use crate::{
-    api::{MeasuredLayout, RenderHtmlRequest, RenderSize, RenderedImage},
+    api::{HtmlInput, MeasuredLayout, RenderHtmlRequest, RenderSize, RenderedImage},
     cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
     error::{RendererError, Result},
     template::normalize_search_path,
@@ -29,6 +29,11 @@ pub struct Renderer {
     search_paths: RwLock<Vec<PathBuf>>,
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
+}
+
+struct PreparedHtmlInput {
+    markup: String,
+    search_paths: Vec<PathBuf>,
 }
 
 impl Default for Renderer {
@@ -134,7 +139,7 @@ impl Renderer {
                     .build(),
             )?;
             let (width, height) = resolved_layout_size(&measured, request.viewport.clone());
-            Viewport::new((width, height))
+            resolved_viewport_from_request(&request, width, height)
         } else {
             viewport_from_request(&request)
         };
@@ -181,13 +186,8 @@ impl Renderer {
 
     fn prepare_html_result(&self, request: &RenderHtmlRequest) -> Result<FromHtmlResult> {
         validate_request(request)?;
-
-        let search_paths = self
-            .search_paths
-            .read()
-            .map_err(|_| state_lock_error("search_paths"))?
-            .clone();
-        self.convert_markup(&request.html, request, &search_paths)
+        let prepared = self.resolve_markup_input(request)?;
+        self.convert_markup(&prepared.markup, request, &prepared.search_paths)
     }
 
     fn convert_markup(
@@ -239,6 +239,50 @@ impl Renderer {
         }
 
         from_document_with_options(markup, &options)
+    }
+
+    fn resolve_markup_input(&self, request: &RenderHtmlRequest) -> Result<PreparedHtmlInput> {
+        let mut search_paths = self
+            .search_paths
+            .read()
+            .map_err(|_| state_lock_error("search_paths"))?
+            .clone();
+
+        match &request.input {
+            HtmlInput::Inline(markup) => Ok(PreparedHtmlInput {
+                markup: markup.clone(),
+                search_paths,
+            }),
+            HtmlInput::File(file) => {
+                let normalized = normalize_existing_path(Path::new(file.trim()))?;
+                if !normalized.is_file() {
+                    return Err(RendererError::invalid_request(format!(
+                        "html file `{}` is not a file",
+                        normalized.display()
+                    )));
+                }
+
+                let markup = {
+                    let mut file_cache = self
+                        .file_cache
+                        .lock()
+                        .map_err(|_| state_lock_error("file_cache"))?;
+                    file_cache.read_string(&normalized)?
+                };
+
+                if let Some(parent) = normalized.parent() {
+                    let parent = parent.to_path_buf();
+                    if !search_paths.iter().any(|existing| existing == &parent) {
+                        search_paths.insert(0, parent);
+                    }
+                }
+
+                Ok(PreparedHtmlInput {
+                    markup,
+                    search_paths,
+                })
+            }
+        }
     }
 
     fn preload_fetched_resources(
@@ -426,11 +470,43 @@ fn validate_request(request: &RenderHtmlRequest) -> Result<()> {
         ));
     }
 
+    if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio
+        && (!device_pixel_ratio.is_finite() || device_pixel_ratio <= 0.0)
+    {
+        return Err(RendererError::invalid_request(
+            "viewport device_pixel_ratio must be greater than zero",
+        ));
+    }
+
+    match &request.input {
+        HtmlInput::Inline(_) => {}
+        HtmlInput::File(path) if path.trim().is_empty() => {
+            return Err(RendererError::invalid_request("input.file cannot be empty"));
+        }
+        HtmlInput::File(_) => {}
+    }
+
     Ok(())
 }
 
 fn viewport_from_request(request: &RenderHtmlRequest) -> Viewport {
-    Viewport::new((request.viewport.width, request.viewport.height))
+    let mut viewport = Viewport::new((request.viewport.width, request.viewport.height));
+    if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
+        viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
+    }
+    viewport
+}
+
+fn resolved_viewport_from_request(
+    request: &RenderHtmlRequest,
+    width: u32,
+    height: u32,
+) -> Viewport {
+    let mut viewport = Viewport::new((width, height));
+    if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
+        viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
+    }
+    viewport
 }
 
 fn request_has_auto_viewport(request: &RenderHtmlRequest) -> bool {
@@ -666,7 +742,7 @@ mod tests {
     use std::fs;
 
     use super::{Renderer, collect_font_files, collect_stylesheet_resource_urls};
-    use crate::api::{ImageFormat, RenderHtmlRequest, RenderSize};
+    use crate::api::{HtmlInput, ImageFormat, RenderHtmlRequest, RenderSize};
     use crate::cache::normalize_existing_path;
     use tempfile::tempdir;
 
@@ -675,10 +751,11 @@ mod tests {
 
     fn inline_html_request(markup: &str) -> RenderHtmlRequest {
         RenderHtmlRequest {
-            html: markup.to_string(),
+            input: HtmlInput::Inline(markup.to_string()),
             viewport: RenderSize {
                 width: Some(20),
                 height: Some(20),
+                device_pixel_ratio: None,
             },
             format: ImageFormat::Png,
             quality: None,
@@ -815,6 +892,90 @@ mod tests {
     }
 
     #[test]
+    fn request_file_uses_parent_directory_as_search_path() {
+        let temp = tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("pages")).expect("create pages dir");
+        fs::write(temp.path().join("pages/relative.png"), tiny_png_bytes()).expect("write image");
+        fs::write(
+            temp.path().join("pages/index.html"),
+            r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+        )
+        .expect("write html file");
+
+        let renderer = Renderer::default();
+        let rendered = renderer
+            .render(RenderHtmlRequest {
+                input: HtmlInput::File(
+                    temp.path()
+                        .join("pages/index.html")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                viewport: RenderSize {
+                    width: Some(20),
+                    height: Some(20),
+                    device_pixel_ratio: None,
+                },
+                format: ImageFormat::Png,
+                quality: None,
+                load_linked_stylesheets: None,
+                normalize_whitespace: None,
+            })
+            .expect("render html file");
+
+        let decoded = image::load_from_memory_with_format(&rendered.bytes, image::ImageFormat::Png)
+            .expect("decode rendered png");
+        let has_red_pixel = decoded
+            .to_rgba8()
+            .pixels()
+            .any(|pixel| pixel.0 == [255, 0, 0, 255]);
+        assert!(
+            has_red_pixel,
+            "expected relative asset from html file directory"
+        );
+    }
+
+    #[test]
+    fn viewport_device_pixel_ratio_scales_css_pixels() {
+        let renderer = Renderer::default();
+        let markup = r#"
+<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; padding: 0; width: 32px; height: 16px; }
+      .box { display: block; width: 16px; height: 16px; background: #ff0000; }
+    </style>
+  </head>
+  <body>
+    <div class="box"></div>
+  </body>
+</html>
+"#;
+
+        let rendered = renderer
+            .render(RenderHtmlRequest {
+                input: HtmlInput::Inline(markup.to_string()),
+                viewport: RenderSize {
+                    width: Some(32),
+                    height: Some(16),
+                    device_pixel_ratio: Some(2.0),
+                },
+                format: ImageFormat::Png,
+                quality: None,
+                load_linked_stylesheets: None,
+                normalize_whitespace: None,
+            })
+            .expect("render with dpr");
+
+        let decoded = image::load_from_memory_with_format(&rendered.bytes, image::ImageFormat::Png)
+            .expect("decode rendered png")
+            .to_rgba8();
+        assert_eq!(decoded.get_pixel(8, 8).0, [255, 0, 0, 255]);
+        assert_eq!(decoded.get_pixel(24, 8).0, [255, 0, 0, 255]);
+    }
+
+    #[test]
     fn renderer_preloads_local_images_referenced_from_linked_stylesheets() {
         let temp = tempdir().expect("tempdir");
         fs::create_dir_all(temp.path().join("styles")).expect("create styles dir");
@@ -833,9 +994,13 @@ mod tests {
         let request = inline_html_request(
             r#"<!doctype html><html><head><link rel="stylesheet" href="styles/linked.css"></head><body><div class="panel"></div></body></html>"#,
         );
+        let markup = match &request.input {
+            HtmlInput::Inline(markup) => markup.as_str(),
+            HtmlInput::File(_) => unreachable!("inline_html_request always produces Html input"),
+        };
 
         let html_result = renderer
-            .convert_markup_with_base(&request.html, &request, Some(temp.path()))
+            .convert_markup_with_base(markup, &request, Some(temp.path()))
             .expect("convert markup");
 
         let expected = normalize_existing_path(&temp.path().join("relative.png"))
@@ -865,10 +1030,11 @@ mod tests {
     #[test]
     fn rejects_zero_viewport_dimensions() {
         let request = RenderHtmlRequest {
-            html: "<div />".to_string(),
+            input: HtmlInput::Inline("<div />".to_string()),
             viewport: RenderSize {
                 width: Some(0),
                 height: Some(20),
+                device_pixel_ratio: None,
             },
             format: ImageFormat::Png,
             quality: None,

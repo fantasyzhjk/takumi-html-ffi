@@ -21,10 +21,11 @@ impl ImageFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct RenderSize {
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub device_pixel_ratio: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -65,9 +66,15 @@ pub struct RenderTemplateRequest {
     pub syntax_theme: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum HtmlInput {
+    Inline(String),
+    File(String),
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct RenderHtmlRequest {
-    pub html: String,
+    pub input: HtmlInput,
     pub viewport: RenderSize,
     pub format: ImageFormat,
     pub quality: Option<u8>,

@@ -4,14 +4,14 @@ use std::{error::Error, path::PathBuf};
 
 use serde_json::json;
 use takumi_render_uniffi::{
-    ImageFormat, RenderHtmlRequest, RenderSize, RenderTemplateRequest, Renderer,
+    HtmlInput, ImageFormat, RenderHtmlRequest, RenderSize, RenderTemplateRequest, Renderer,
     TemplateContentKind, TemplateEngine, TemplateInput,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
     let template_engine = TemplateEngine::new();
     let renderer = Renderer::new();
-    let asset_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets");
+    let asset_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/assets").canonicalize().unwrap();
     let asset_dir = asset_root.join("jinjaMarkdownArticle");
     let output_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("output-jinja-markdown-article.png");
@@ -29,10 +29,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     renderer.render_to_file(
         RenderHtmlRequest {
-            html,
+            input: HtmlInput::Inline(html),
             viewport: RenderSize {
                 width: Some(1200),
                 height: Some(800),
+                device_pixel_ratio: None,
             },
             format: ImageFormat::Png,
             quality: None,

@@ -9,12 +9,16 @@ public enum ImageFormat
     Jpeg,
 }
 
-public sealed record RenderSize(uint? Width = null, uint? Height = null)
+public sealed record RenderSize(
+    uint? Width = null,
+    uint? Height = null,
+    float? DevicePixelRatio = null
+)
 {
-    internal Generated.RenderSize ToGenerated() => new(Width, Height);
+    internal Generated.RenderSize ToGenerated() => new(Width, Height, DevicePixelRatio);
 
     internal static RenderSize FromGenerated(Generated.RenderSize size) =>
-        new(size.width, size.height);
+        new(size.width, size.height, size.devicePixelRatio);
 }
 
 public sealed record MeasuredLayout(uint Width, uint Height)
@@ -106,9 +110,42 @@ public sealed class RenderTemplateRequest
         new(Input.ToGenerated(), ContextJson, ContentKind.ToGenerated(), SyntaxTheme);
 }
 
+public enum HtmlInputKind
+{
+    Inline,
+    File,
+}
+
+public sealed class HtmlInput
+{
+    public required HtmlInputKind Kind { get; init; }
+
+    public string? Value { get; init; }
+
+    public static HtmlInput Inline(string html) =>
+        new() { Kind = HtmlInputKind.Inline, Value = html, };
+
+    public static HtmlInput File(string path) => new() { Kind = HtmlInputKind.File, Value = path, };
+
+    internal Generated.HtmlInput ToGenerated() =>
+        Kind switch
+        {
+            HtmlInputKind.Inline
+                => new Generated.HtmlInput.Inline(
+                    Value
+                        ?? throw new InvalidOperationException("Value is required for inline input")
+                ),
+            HtmlInputKind.File
+                => new Generated.HtmlInput.File(
+                    Value ?? throw new InvalidOperationException("Value is required for file input")
+                ),
+            _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null),
+        };
+}
+
 public sealed class RenderHtmlRequest
 {
-    public required string Html { get; init; }
+    public required HtmlInput Input { get; init; }
 
     public required RenderSize Viewport { get; init; }
 
@@ -122,7 +159,7 @@ public sealed class RenderHtmlRequest
 
     internal Generated.RenderHtmlRequest ToGenerated() =>
         new(
-            Html,
+            Input.ToGenerated(),
             Viewport.ToGenerated(),
             Format.ToGenerated(),
             Quality,

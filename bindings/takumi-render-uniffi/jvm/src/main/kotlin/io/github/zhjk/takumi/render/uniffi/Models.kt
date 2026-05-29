@@ -1,6 +1,7 @@
 package io.github.zhjk.takumi.render.uniffi
 
 import io.github.zhjk.takumi.render.uniffi.generated.ImageFormat as GeneratedImageFormat
+import io.github.zhjk.takumi.render.uniffi.generated.HtmlInput as GeneratedHtmlInput
 import io.github.zhjk.takumi.render.uniffi.generated.InlineTemplateInput as GeneratedInlineTemplateInput
 import io.github.zhjk.takumi.render.uniffi.generated.MeasuredLayout as GeneratedMeasuredLayout
 import io.github.zhjk.takumi.render.uniffi.generated.RenderHtmlRequest as GeneratedRenderHtmlRequest
@@ -35,17 +36,22 @@ enum class ImageFormat {
 class RenderSize @JvmOverloads constructor(
     var width: Int? = null,
     var height: Int? = null,
+    var devicePixelRatio: Float? = null,
 ) {
     internal fun toGenerated(): GeneratedRenderSize {
         val widthValue = width?.also { require(it > 0) { "width must be greater than zero" } }?.toUInt()
         val heightValue = height?.also { require(it > 0) { "height must be greater than zero" } }?.toUInt()
-        return GeneratedRenderSize(widthValue, heightValue)
+        val devicePixelRatioValue = devicePixelRatio?.also {
+            require(it.isFinite() && it > 0f) { "devicePixelRatio must be greater than zero" }
+        }
+        return GeneratedRenderSize(widthValue, heightValue, devicePixelRatioValue)
     }
 
     internal companion object {
         fun fromGenerated(size: GeneratedRenderSize): RenderSize = RenderSize(
             width = size.width?.toInt(),
             height = size.height?.toInt(),
+            devicePixelRatio = size.devicePixelRatio,
         )
     }
 }
@@ -159,8 +165,37 @@ class RenderTemplateRequest @JvmOverloads constructor(
     )
 }
 
+enum class HtmlInputKind {
+    INLINE,
+    FILE,
+}
+
+class HtmlInput private constructor(
+    var kind: HtmlInputKind,
+    var value: String,
+) {
+    internal fun toGenerated(): GeneratedHtmlInput = when (kind) {
+        HtmlInputKind.INLINE -> GeneratedHtmlInput.Inline(value)
+        HtmlInputKind.FILE -> GeneratedHtmlInput.File(value)
+    }
+
+    companion object {
+        @JvmStatic
+        fun inline(value: String): HtmlInput = HtmlInput(
+            kind = HtmlInputKind.INLINE,
+            value = value,
+        )
+
+        @JvmStatic
+        fun file(path: String): HtmlInput = HtmlInput(
+            kind = HtmlInputKind.FILE,
+            value = path,
+        )
+    }
+}
+
 class RenderHtmlRequest @JvmOverloads constructor(
-    var html: String,
+    var input: HtmlInput,
     var viewport: RenderSize = RenderSize(),
     var format: ImageFormat = ImageFormat.PNG,
 ) {
@@ -174,7 +209,7 @@ class RenderHtmlRequest @JvmOverloads constructor(
         }?.toUByte()
 
         return GeneratedRenderHtmlRequest(
-            html = html,
+            input = input.toGenerated(),
             viewport = viewport.toGenerated(),
             format = format.toGenerated(),
             quality = qualityValue,

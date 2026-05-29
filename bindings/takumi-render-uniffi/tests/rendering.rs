@@ -6,8 +6,8 @@ use std::{
 use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
 use takumi_render_uniffi::{
-    ImageFormat, InlineTemplateInput, RenderHtmlRequest, RenderSize, RenderTemplateRequest,
-    Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
+    HtmlInput, ImageFormat, InlineTemplateInput, RenderHtmlRequest, RenderSize,
+    RenderTemplateRequest, Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
 };
 use tempfile::TempDir;
 
@@ -46,7 +46,8 @@ fn render_template_string_supports_nested_json_and_search_paths() {
 fn render_inline_html_linear_gradient_background_renders_color_transition() {
     let renderer = Renderer::new();
     let request = RenderHtmlRequest {
-        html: r#"<style>
+        input: HtmlInput::Inline(
+            r#"<style>
       .gradient {
         display: block;
         width: 64px;
@@ -56,10 +57,12 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
     </style>
     <div class="gradient"></div>
 "#
-        .to_string(),
+            .to_string(),
+        ),
         viewport: RenderSize {
             width: Some(64),
             height: Some(16),
+            device_pixel_ratio: None,
         },
         format: ImageFormat::Png,
         quality: Some(100),
@@ -367,10 +370,11 @@ fn template_request(
 
 fn html_request(html: String, format: ImageFormat) -> RenderHtmlRequest {
     RenderHtmlRequest {
-        html,
+        input: HtmlInput::Inline(html),
         viewport: RenderSize {
             width: Some(64),
             height: Some(64),
+            device_pixel_ratio: None,
         },
         format,
         quality: Some(100),
@@ -449,10 +453,11 @@ This screenshot is rendered from **Markdown** without any `context_json`.
 
 ```rust
 let request = RenderHtmlRequest {
-    html,
+    input: HtmlInput::Html(html),
     viewport: RenderSize {
         width: Some(64),
         height: Some(64),
+        device_pixel_ratio: None,
     },
     format: ImageFormat::Png,
     quality: Some(100),
