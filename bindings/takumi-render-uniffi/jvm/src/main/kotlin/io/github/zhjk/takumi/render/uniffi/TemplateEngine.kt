@@ -23,7 +23,7 @@ class TemplateEngine : AutoCloseable {
         invokeVoid { inner.clearTemplates() }
     }
 
-    fun render(request: RenderTemplateRequest): String =
+    fun render(request: TemplateRequest): String =
         invoke { inner.render(request.toGenerated()) }
 
     override fun close() {

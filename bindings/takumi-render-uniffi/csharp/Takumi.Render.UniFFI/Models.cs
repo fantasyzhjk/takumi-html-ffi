@@ -96,7 +96,7 @@ public sealed class TemplateInput
         };
 }
 
-public sealed class RenderTemplateRequest
+public sealed class TemplateRequest
 {
     public required TemplateInput Input { get; init; }
 
@@ -106,7 +106,7 @@ public sealed class RenderTemplateRequest
 
     public string? SyntaxTheme { get; init; }
 
-    internal Generated.RenderTemplateRequest ToGenerated() =>
+    internal Generated.TemplateRequest ToGenerated() =>
         new(Input.ToGenerated(), ContextJson, ContentKind.ToGenerated(), SyntaxTheme);
 }
 
@@ -116,36 +116,36 @@ public enum HtmlInputKind
     File,
 }
 
-public sealed class HtmlInput
+public sealed class RenderInput
 {
     public required HtmlInputKind Kind { get; init; }
 
     public string? Value { get; init; }
 
-    public static HtmlInput Inline(string html) =>
+    public static RenderInput Inline(string html) =>
         new() { Kind = HtmlInputKind.Inline, Value = html, };
 
-    public static HtmlInput File(string path) => new() { Kind = HtmlInputKind.File, Value = path, };
+    public static RenderInput File(string path) => new() { Kind = HtmlInputKind.File, Value = path, };
 
-    internal Generated.HtmlInput ToGenerated() =>
+    internal Generated.RenderInput ToGenerated() =>
         Kind switch
         {
             HtmlInputKind.Inline
-                => new Generated.HtmlInput.Inline(
+                => new Generated.RenderInput.Inline(
                     Value
                         ?? throw new InvalidOperationException("Value is required for inline input")
                 ),
             HtmlInputKind.File
-                => new Generated.HtmlInput.File(
+                => new Generated.RenderInput.File(
                     Value ?? throw new InvalidOperationException("Value is required for file input")
                 ),
             _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null),
         };
 }
 
-public sealed class RenderHtmlRequest
+public sealed class RenderRequest
 {
-    public required HtmlInput Input { get; init; }
+    public required RenderInput Input { get; init; }
 
     public required RenderSize Viewport { get; init; }
 
@@ -157,7 +157,7 @@ public sealed class RenderHtmlRequest
 
     public bool? NormalizeWhitespace { get; init; }
 
-    internal Generated.RenderHtmlRequest ToGenerated() =>
+    internal Generated.RenderRequest ToGenerated() =>
         new(
             Input.ToGenerated(),
             Viewport.ToGenerated(),

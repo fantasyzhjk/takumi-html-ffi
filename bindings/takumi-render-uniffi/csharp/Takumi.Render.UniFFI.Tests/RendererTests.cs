@@ -20,7 +20,7 @@ public sealed class RendererTests
         renderer.AddFontDirectory(Path.GetDirectoryName(FontPath())!);
 
         var html = templateEngine.Render(
-            new RenderTemplateRequest
+            new TemplateRequest
             {
                 Input = TemplateInput.Inline(InlineTemplate),
                 ContextJson = "{\"name\":\"Takumi\"}",
@@ -29,9 +29,9 @@ public sealed class RendererTests
         );
 
         var image = renderer.Render(
-            new RenderHtmlRequest
+            new RenderRequest
             {
-                Input = HtmlInput.Inline(html),
+                Input = RenderInput.Inline(html),
                 Viewport = new RenderSize(320, 180),
                 Format = ImageFormat.Png,
             }
@@ -69,7 +69,7 @@ public sealed class RendererTests
         renderer.AddFontDirectory(Path.GetDirectoryName(FontPath())!);
 
         var html = templateEngine.Render(
-            new RenderTemplateRequest
+            new TemplateRequest
             {
                 Input = TemplateInput.File("index.jinja"),
                 ContextJson = "{\"name\":\"Takumi\"}",
@@ -78,9 +78,9 @@ public sealed class RendererTests
         );
 
         var image = renderer.Render(
-            new RenderHtmlRequest
+            new RenderRequest
             {
-                Input = HtmlInput.Inline(html),
+                Input = RenderInput.Inline(html),
                 Viewport = new RenderSize(32, 32),
                 Format = ImageFormat.Png,
             }
@@ -100,7 +100,7 @@ public sealed class RendererTests
 
         var outputPath = Path.Combine(Path.GetTempPath(), $"takumi-render-{Guid.NewGuid():N}.png");
         var html = templateEngine.Render(
-            new RenderTemplateRequest
+            new TemplateRequest
             {
                 Input = TemplateInput.Inline(InlineTemplate),
                 ContextJson = "{\"name\":\"Takumi\"}",
@@ -111,9 +111,9 @@ public sealed class RendererTests
         try
         {
             var image = renderer.RenderToFile(
-                new RenderHtmlRequest
+                new RenderRequest
                 {
-                    Input = HtmlInput.Inline(html),
+                    Input = RenderInput.Inline(html),
                     Viewport = new RenderSize(240, 120),
                     Format = ImageFormat.Png,
                 },

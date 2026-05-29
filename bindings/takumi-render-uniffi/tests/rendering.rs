@@ -6,8 +6,8 @@ use std::{
 use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
 use takumi_render_uniffi::{
-    HtmlInput, ImageFormat, InlineTemplateInput, RenderHtmlRequest, RenderSize,
-    RenderTemplateRequest, Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
+    RenderInput, ImageFormat, InlineTemplateInput, RenderRequest, RenderSize,
+    TemplateRequest, Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
 };
 use tempfile::TempDir;
 
@@ -45,8 +45,8 @@ fn render_template_string_supports_nested_json_and_search_paths() {
 #[test]
 fn render_inline_html_linear_gradient_background_renders_color_transition() {
     let renderer = Renderer::new();
-    let request = RenderHtmlRequest {
-        input: HtmlInput::Inline(
+    let request = RenderRequest {
+        input: RenderInput::Inline(
             r#"<style>
       .gradient {
         display: block;
@@ -359,8 +359,8 @@ fn template_request(
     content_kind: TemplateContentKind,
     syntax_theme: Option<String>,
     context_json: Option<String>,
-) -> RenderTemplateRequest {
-    RenderTemplateRequest {
+) -> TemplateRequest {
+    TemplateRequest {
         input,
         context_json,
         content_kind,
@@ -368,9 +368,9 @@ fn template_request(
     }
 }
 
-fn html_request(html: String, format: ImageFormat) -> RenderHtmlRequest {
-    RenderHtmlRequest {
-        input: HtmlInput::Inline(html),
+fn html_request(html: String, format: ImageFormat) -> RenderRequest {
+    RenderRequest {
+        input: RenderInput::Inline(html),
         viewport: RenderSize {
             width: Some(64),
             height: Some(64),

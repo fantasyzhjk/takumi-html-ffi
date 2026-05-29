@@ -31,13 +31,13 @@ class Renderer : AutoCloseable {
         invokeVoid { inner.clearCaches() }
     }
 
-    fun measure(request: RenderHtmlRequest): MeasuredLayout =
+    fun measure(request: RenderRequest): MeasuredLayout =
         MeasuredLayout.fromGenerated(invoke { inner.measure(request.toGenerated()) })
 
-    fun render(request: RenderHtmlRequest): RenderedImage =
+    fun render(request: RenderRequest): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.render(request.toGenerated()) })
 
-    fun renderToFile(request: RenderHtmlRequest, outputPath: String): RenderedImage =
+    fun renderToFile(request: RenderRequest, outputPath: String): RenderedImage =
         RenderedImage.fromGenerated(invoke { inner.renderToFile(request.toGenerated(), outputPath) })
 
     override fun close() {

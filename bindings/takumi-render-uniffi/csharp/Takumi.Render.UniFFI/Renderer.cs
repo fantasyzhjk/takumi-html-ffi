@@ -36,17 +36,17 @@ public sealed class Renderer : IDisposable
         Invoke(_inner.ClearCaches);
     }
 
-    public MeasuredLayout Measure(RenderHtmlRequest request)
+    public MeasuredLayout Measure(RenderRequest request)
     {
         return MeasuredLayout.FromGenerated(Invoke(() => _inner.Measure(request.ToGenerated())));
     }
 
-    public RenderedImage Render(RenderHtmlRequest request)
+    public RenderedImage Render(RenderRequest request)
     {
         return RenderedImage.FromGenerated(Invoke(() => _inner.Render(request.ToGenerated())));
     }
 
-    public RenderedImage RenderToFile(RenderHtmlRequest request, string outputPath)
+    public RenderedImage RenderToFile(RenderRequest request, string outputPath)
     {
         return RenderedImage.FromGenerated(
             Invoke(() => _inner.RenderToFile(request.ToGenerated(), outputPath))

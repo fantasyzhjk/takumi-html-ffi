@@ -59,7 +59,7 @@ impl TemplateContentKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct RenderTemplateRequest {
+pub struct TemplateRequest {
     pub input: TemplateInput,
     pub context_json: Option<String>,
     pub content_kind: TemplateContentKind,
@@ -67,14 +67,14 @@ pub struct RenderTemplateRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
-pub enum HtmlInput {
+pub enum RenderInput {
     Inline(String),
     File(String),
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct RenderHtmlRequest {
-    pub input: HtmlInput,
+pub struct RenderRequest {
+    pub input: RenderInput,
     pub viewport: RenderSize,
     pub format: ImageFormat,
     pub quality: Option<u8>,

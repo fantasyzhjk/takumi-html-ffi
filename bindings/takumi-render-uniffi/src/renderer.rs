@@ -17,7 +17,7 @@ use takumi_html::{
 };
 
 use crate::{
-    api::{HtmlInput, MeasuredLayout, RenderHtmlRequest, RenderSize, RenderedImage},
+    api::{RenderInput, MeasuredLayout, RenderRequest, RenderSize, RenderedImage},
     cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
     error::{RendererError, Result},
     template::normalize_search_path,
@@ -94,13 +94,13 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn render(&self, request: RenderHtmlRequest) -> Result<RenderedImage> {
+    pub fn render(&self, request: RenderRequest) -> Result<RenderedImage> {
         self.render_request(request)
     }
 
     pub fn render_to_file(
         &self,
-        request: RenderHtmlRequest,
+        request: RenderRequest,
         output_path: String,
     ) -> Result<RenderedImage> {
         let rendered = self.render_request(request)?;
@@ -108,7 +108,7 @@ impl Renderer {
         Ok(rendered)
     }
 
-    pub fn measure(&self, request: RenderHtmlRequest) -> Result<MeasuredLayout> {
+    pub fn measure(&self, request: RenderRequest) -> Result<MeasuredLayout> {
         self.measure_request(request)
     }
 }
@@ -122,7 +122,7 @@ impl Renderer {
             .unwrap_or_default()
     }
 
-    fn render_request(&self, request: RenderHtmlRequest) -> Result<RenderedImage> {
+    fn render_request(&self, request: RenderRequest) -> Result<RenderedImage> {
         let html_result = self.prepare_html_result(&request)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
@@ -163,7 +163,7 @@ impl Renderer {
         })
     }
 
-    fn measure_request(&self, request: RenderHtmlRequest) -> Result<MeasuredLayout> {
+    fn measure_request(&self, request: RenderRequest) -> Result<MeasuredLayout> {
         let html_result = self.prepare_html_result(&request)?;
         let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
@@ -184,7 +184,7 @@ impl Renderer {
         Ok(MeasuredLayout { width, height })
     }
 
-    fn prepare_html_result(&self, request: &RenderHtmlRequest) -> Result<FromHtmlResult> {
+    fn prepare_html_result(&self, request: &RenderRequest) -> Result<FromHtmlResult> {
         validate_request(request)?;
         let prepared = self.resolve_markup_input(request)?;
         self.convert_markup(&prepared.markup, request, &prepared.search_paths)
@@ -193,7 +193,7 @@ impl Renderer {
     fn convert_markup(
         &self,
         markup: &str,
-        request: &RenderHtmlRequest,
+        request: &RenderRequest,
         base_candidates: &[PathBuf],
     ) -> Result<FromHtmlResult> {
         if base_candidates.is_empty() {
@@ -226,7 +226,7 @@ impl Renderer {
     fn convert_markup_with_base(
         &self,
         markup: &str,
-        request: &RenderHtmlRequest,
+        request: &RenderRequest,
         base_path: Option<&Path>,
     ) -> std::result::Result<FromHtmlResult, HtmlError> {
         let mut options = FromHtmlOptions::new()
@@ -241,7 +241,7 @@ impl Renderer {
         from_document_with_options(markup, &options)
     }
 
-    fn resolve_markup_input(&self, request: &RenderHtmlRequest) -> Result<PreparedHtmlInput> {
+    fn resolve_markup_input(&self, request: &RenderRequest) -> Result<PreparedHtmlInput> {
         let mut search_paths = self
             .search_paths
             .read()
@@ -249,11 +249,11 @@ impl Renderer {
             .clone();
 
         match &request.input {
-            HtmlInput::Inline(markup) => Ok(PreparedHtmlInput {
+            RenderInput::Inline(markup) => Ok(PreparedHtmlInput {
                 markup: markup.clone(),
                 search_paths,
             }),
-            HtmlInput::File(file) => {
+            RenderInput::File(file) => {
                 let normalized = normalize_existing_path(Path::new(file.trim()))?;
                 if !normalized.is_file() {
                     return Err(RendererError::invalid_request(format!(
@@ -354,7 +354,7 @@ impl Renderer {
     fn encode_image(
         &self,
         image: &image::RgbaImage,
-        request: &RenderHtmlRequest,
+        request: &RenderRequest,
     ) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         write_image(
@@ -463,7 +463,7 @@ impl Renderer {
     }
 }
 
-fn validate_request(request: &RenderHtmlRequest) -> Result<()> {
+fn validate_request(request: &RenderRequest) -> Result<()> {
     if matches!(request.viewport.width, Some(0)) || matches!(request.viewport.height, Some(0)) {
         return Err(RendererError::invalid_request(
             "viewport width and height must be greater than zero when provided",
@@ -479,17 +479,17 @@ fn validate_request(request: &RenderHtmlRequest) -> Result<()> {
     }
 
     match &request.input {
-        HtmlInput::Inline(_) => {}
-        HtmlInput::File(path) if path.trim().is_empty() => {
+        RenderInput::Inline(_) => {}
+        RenderInput::File(path) if path.trim().is_empty() => {
             return Err(RendererError::invalid_request("input.file cannot be empty"));
         }
-        HtmlInput::File(_) => {}
+        RenderInput::File(_) => {}
     }
 
     Ok(())
 }
 
-fn viewport_from_request(request: &RenderHtmlRequest) -> Viewport {
+fn viewport_from_request(request: &RenderRequest) -> Viewport {
     let mut viewport = Viewport::new((request.viewport.width, request.viewport.height));
     if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
         viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
@@ -498,7 +498,7 @@ fn viewport_from_request(request: &RenderHtmlRequest) -> Viewport {
 }
 
 fn resolved_viewport_from_request(
-    request: &RenderHtmlRequest,
+    request: &RenderRequest,
     width: u32,
     height: u32,
 ) -> Viewport {
@@ -509,7 +509,7 @@ fn resolved_viewport_from_request(
     viewport
 }
 
-fn request_has_auto_viewport(request: &RenderHtmlRequest) -> bool {
+fn request_has_auto_viewport(request: &RenderRequest) -> bool {
     request.viewport.width.is_none() || request.viewport.height.is_none()
 }
 
@@ -742,16 +742,16 @@ mod tests {
     use std::fs;
 
     use super::{Renderer, collect_font_files, collect_stylesheet_resource_urls};
-    use crate::api::{HtmlInput, ImageFormat, RenderHtmlRequest, RenderSize};
+    use crate::api::{RenderInput, ImageFormat, RenderRequest, RenderSize};
     use crate::cache::normalize_existing_path;
     use tempfile::tempdir;
 
     #[cfg(windows)]
     use super::is_local_cached_asset_reference;
 
-    fn inline_html_request(markup: &str) -> RenderHtmlRequest {
-        RenderHtmlRequest {
-            input: HtmlInput::Inline(markup.to_string()),
+    fn inline_html_request(markup: &str) -> RenderRequest {
+        RenderRequest {
+            input: RenderInput::Inline(markup.to_string()),
             viewport: RenderSize {
                 width: Some(20),
                 height: Some(20),
@@ -904,8 +904,8 @@ mod tests {
 
         let renderer = Renderer::default();
         let rendered = renderer
-            .render(RenderHtmlRequest {
-                input: HtmlInput::File(
+            .render(RenderRequest {
+                input: RenderInput::File(
                     temp.path()
                         .join("pages/index.html")
                         .to_string_lossy()
@@ -954,8 +954,8 @@ mod tests {
 "#;
 
         let rendered = renderer
-            .render(RenderHtmlRequest {
-                input: HtmlInput::Inline(markup.to_string()),
+            .render(RenderRequest {
+                input: RenderInput::Inline(markup.to_string()),
                 viewport: RenderSize {
                     width: Some(32),
                     height: Some(16),
@@ -995,8 +995,8 @@ mod tests {
             r#"<!doctype html><html><head><link rel="stylesheet" href="styles/linked.css"></head><body><div class="panel"></div></body></html>"#,
         );
         let markup = match &request.input {
-            HtmlInput::Inline(markup) => markup.as_str(),
-            HtmlInput::File(_) => unreachable!("inline_html_request always produces Html input"),
+            RenderInput::Inline(markup) => markup.as_str(),
+            RenderInput::File(_) => unreachable!("inline_html_request always produces Html input"),
         };
 
         let html_result = renderer
@@ -1029,8 +1029,8 @@ mod tests {
 
     #[test]
     fn rejects_zero_viewport_dimensions() {
-        let request = RenderHtmlRequest {
-            input: HtmlInput::Inline("<div />".to_string()),
+        let request = RenderRequest {
+            input: RenderInput::Inline("<div />".to_string()),
             viewport: RenderSize {
                 width: Some(0),
                 height: Some(20),

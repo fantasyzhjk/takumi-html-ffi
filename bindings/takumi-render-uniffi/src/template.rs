@@ -10,7 +10,7 @@ use minijinja::{AutoEscape, Environment, Error, ErrorKind};
 use serde_json::Value;
 
 use crate::{
-    api::{InlineTemplateInput, RenderTemplateRequest, TemplateContentKind, TemplateInput},
+    api::{InlineTemplateInput, TemplateRequest, TemplateContentKind, TemplateInput},
     cache::{FileCache, normalize_existing_path},
     error::{RendererError, Result},
     markdown::{self, FormattingConfig, render_markdown_to_html},
@@ -75,13 +75,13 @@ impl TemplateEngine {
         Ok(())
     }
 
-    pub fn render(&self, request: RenderTemplateRequest) -> Result<String> {
+    pub fn render(&self, request: TemplateRequest) -> Result<String> {
         self.render_request(request)
     }
 }
 
 impl TemplateEngine {
-    fn render_request(&self, request: RenderTemplateRequest) -> Result<String> {
+    fn render_request(&self, request: TemplateRequest) -> Result<String> {
         validate_render_request(&request)?;
 
         let repository = self.template_repository()?;
@@ -173,7 +173,7 @@ pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
 }
 
 pub(crate) fn resolve_source(
-    request: &RenderTemplateRequest,
+    request: &TemplateRequest,
     repository: &TemplateRepository,
 ) -> Result<ResolvedSource> {
     let formatting = FormattingConfig::new(request.syntax_theme.as_deref())?;
@@ -211,7 +211,7 @@ pub(crate) fn render_template_markup(
     Ok(template.render(context)?)
 }
 
-fn validate_render_request(request: &RenderTemplateRequest) -> Result<()> {
+fn validate_render_request(request: &TemplateRequest) -> Result<()> {
     validate_template_input(&request.input)?;
     let _ = FormattingConfig::new(request.syntax_theme.as_deref())?;
     Ok(())
@@ -567,7 +567,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{api::RenderTemplateRequest, cache::FileCache};
+    use crate::{api::TemplateRequest, cache::FileCache};
 
     fn render_inline(
         content_kind: TemplateContentKind,
@@ -575,7 +575,7 @@ mod tests {
         context_json: Option<&str>,
     ) -> String {
         let engine = TemplateEngine::default();
-        let request = RenderTemplateRequest {
+        let request = TemplateRequest {
             input: TemplateInput::Inline(InlineTemplateInput {
                 source: template_source.to_string(),
                 logical_name: Some("inline/index.jinja".to_string()),
@@ -649,7 +649,7 @@ mod tests {
             .add_search_path(template_dir.to_string_lossy().into_owned())
             .expect("add search path");
         let rendered = engine
-            .render(RenderTemplateRequest {
+            .render(TemplateRequest {
                 input: TemplateInput::File("index.jinja".to_string()),
                 context_json: None,
                 content_kind: TemplateContentKind::JinjaHtml,
@@ -743,7 +743,7 @@ mod tests {
             file_cache: Arc::new(Mutex::new(FileCache::default())),
         };
 
-        let request = RenderTemplateRequest {
+        let request = TemplateRequest {
             input: TemplateInput::Registered("cards/profile.jinja".to_string()),
             context_json: None,
             content_kind: TemplateContentKind::JinjaHtml,

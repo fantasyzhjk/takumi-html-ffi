@@ -1,12 +1,12 @@
 package io.github.zhjk.takumi.render.uniffi
 
 import io.github.zhjk.takumi.render.uniffi.generated.ImageFormat as GeneratedImageFormat
-import io.github.zhjk.takumi.render.uniffi.generated.HtmlInput as GeneratedHtmlInput
+import io.github.zhjk.takumi.render.uniffi.generated.RenderInput as GeneratedRenderInput
 import io.github.zhjk.takumi.render.uniffi.generated.InlineTemplateInput as GeneratedInlineTemplateInput
 import io.github.zhjk.takumi.render.uniffi.generated.MeasuredLayout as GeneratedMeasuredLayout
-import io.github.zhjk.takumi.render.uniffi.generated.RenderHtmlRequest as GeneratedRenderHtmlRequest
+import io.github.zhjk.takumi.render.uniffi.generated.RenderRequest as GeneratedRenderRequest
 import io.github.zhjk.takumi.render.uniffi.generated.RenderSize as GeneratedRenderSize
-import io.github.zhjk.takumi.render.uniffi.generated.RenderTemplateRequest as GeneratedRenderTemplateRequest
+import io.github.zhjk.takumi.render.uniffi.generated.TemplateRequest as GeneratedTemplateRequest
 import io.github.zhjk.takumi.render.uniffi.generated.RenderedImage as GeneratedRenderedImage
 import io.github.zhjk.takumi.render.uniffi.generated.RendererException as GeneratedRendererException
 import io.github.zhjk.takumi.render.uniffi.generated.TemplateContentKind as GeneratedTemplateContentKind
@@ -151,13 +151,13 @@ class TemplateInput private constructor(
     }
 }
 
-class RenderTemplateRequest @JvmOverloads constructor(
+class TemplateRequest @JvmOverloads constructor(
     var input: TemplateInput,
     var contextJson: String? = null,
     var contentKind: TemplateContentKind,
     var syntaxTheme: String? = null,
 ) {
-    internal fun toGenerated(): GeneratedRenderTemplateRequest = GeneratedRenderTemplateRequest(
+    internal fun toGenerated(): GeneratedTemplateRequest = GeneratedTemplateRequest(
         input = input.toGenerated(),
         contextJson = contextJson,
         contentKind = contentKind.toGenerated(),
@@ -165,37 +165,37 @@ class RenderTemplateRequest @JvmOverloads constructor(
     )
 }
 
-enum class HtmlInputKind {
+enum class RenderInputKind {
     INLINE,
     FILE,
 }
 
-class HtmlInput private constructor(
-    var kind: HtmlInputKind,
+class RenderInput private constructor(
+    var kind: RenderInputKind,
     var value: String,
 ) {
-    internal fun toGenerated(): GeneratedHtmlInput = when (kind) {
-        HtmlInputKind.INLINE -> GeneratedHtmlInput.Inline(value)
-        HtmlInputKind.FILE -> GeneratedHtmlInput.File(value)
+    internal fun toGenerated(): GeneratedRenderInput = when (kind) {
+        RenderInputKind.INLINE -> GeneratedRenderInput.Inline(value)
+        RenderInputKind.FILE -> GeneratedRenderInput.File(value)
     }
 
     companion object {
         @JvmStatic
-        fun inline(value: String): HtmlInput = HtmlInput(
-            kind = HtmlInputKind.INLINE,
+        fun inline(value: String): RenderInput = RenderInput(
+            kind = RenderInputKind.INLINE,
             value = value,
         )
 
         @JvmStatic
-        fun file(path: String): HtmlInput = HtmlInput(
-            kind = HtmlInputKind.FILE,
+        fun file(path: String): RenderInput = RenderInput(
+            kind = RenderInputKind.FILE,
             value = path,
         )
     }
 }
 
-class RenderHtmlRequest @JvmOverloads constructor(
-    var input: HtmlInput,
+class RenderRequest @JvmOverloads constructor(
+    var input: RenderInput,
     var viewport: RenderSize = RenderSize(),
     var format: ImageFormat = ImageFormat.PNG,
 ) {
@@ -203,12 +203,12 @@ class RenderHtmlRequest @JvmOverloads constructor(
     var loadLinkedStylesheets: Boolean? = null
     var normalizeWhitespace: Boolean? = null
 
-    internal fun toGenerated(): GeneratedRenderHtmlRequest {
+    internal fun toGenerated(): GeneratedRenderRequest {
         val qualityValue = quality?.also {
             require(it in 0..255) { "quality must be between 0 and 255" }
         }?.toUByte()
 
-        return GeneratedRenderHtmlRequest(
+        return GeneratedRenderRequest(
             input = input.toGenerated(),
             viewport = viewport.toGenerated(),
             format = format.toGenerated(),

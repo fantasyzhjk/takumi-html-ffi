@@ -3,7 +3,7 @@
 use std::{error::Error, path::PathBuf};
 
 use takumi_render_uniffi::{
-    HtmlInput, ImageFormat, RenderHtmlRequest, RenderSize, RenderTemplateRequest, Renderer,
+    RenderInput, ImageFormat, RenderRequest, RenderSize, TemplateRequest, Renderer,
     TemplateContentKind, TemplateEngine, TemplateInput,
 };
 
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     renderer.add_search_path(asset_dir.to_string_lossy().into_owned())?;
     renderer.add_font_directory(examples_root.join("fonts").to_string_lossy().into_owned())?;
 
-    let html = template_engine.render(RenderTemplateRequest {
+    let html = template_engine.render(TemplateRequest {
         input: TemplateInput::File("index.md".to_string()),
         context_json: None,
         content_kind: TemplateContentKind::Markdown,
@@ -30,8 +30,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     })?;
 
     renderer.render_to_file(
-        RenderHtmlRequest {
-            input: HtmlInput::Inline(html),
+        RenderRequest {
+            input: RenderInput::Inline(html),
             viewport: RenderSize {
                 width: Some(1200),
                 height: Some(800),

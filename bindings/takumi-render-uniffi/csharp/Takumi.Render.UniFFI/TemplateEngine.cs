@@ -26,7 +26,7 @@ public sealed class TemplateEngine : IDisposable
         Invoke(_inner.ClearTemplates);
     }
 
-    public string Render(RenderTemplateRequest request)
+    public string Render(TemplateRequest request)
     {
         return Invoke(() => _inner.Render(request.ToGenerated()));
     }
