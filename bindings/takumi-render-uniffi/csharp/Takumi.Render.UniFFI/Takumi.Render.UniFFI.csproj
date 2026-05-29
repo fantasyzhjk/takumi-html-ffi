@@ -4,7 +4,7 @@
     <AssemblyName>Takumi.Render.UniFFI</AssemblyName>
     <RootNamespace>Takumi.Render.UniFFI</RootNamespace>
     <PackageId>Takumi.Render.UniFFI</PackageId>
-    <Version>0.2.2</Version>
+    <Version>0.2.3</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
