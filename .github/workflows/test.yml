@@ -18,12 +18,6 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            bindings/takumi-render-uniffi -> target
 
-      - name: Run Global Cargo Test
-        run: cargo test
-
-      - name: Run UniFFI Binding Cargo Test
-        run: cargo test --manifest-path bindings/takumi-render-uniffi/Cargo.toml
+      - name: Run Workspace Cargo Test
+        run: cargo test --workspace

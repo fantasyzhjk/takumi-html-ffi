@@ -31,6 +31,10 @@ class Renderer : AutoCloseable {
         invokeVoid { inner.clearCaches() }
     }
 
+    fun setImageCacheEnabled(enabled: Boolean) {
+        invokeVoid { inner.setImageCacheEnabled(enabled) }
+    }
+
     fun measure(request: RenderRequest): MeasuredLayout =
         MeasuredLayout.fromGenerated(invoke { inner.measure(request.toGenerated()) })
 

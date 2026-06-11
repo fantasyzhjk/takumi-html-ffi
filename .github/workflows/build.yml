@@ -50,8 +50,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          workspaces: |
-            bindings/takumi-render-uniffi -> target
 
       - name: Install Cross-Compiler (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -60,7 +58,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build
-        run: cargo build --manifest-path bindings/takumi-render-uniffi/Cargo.toml --release --target ${{ matrix.target }}
+        run: cargo build -p takumi-render-uniffi --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
@@ -68,7 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.artifact-name }}
-          path: bindings/takumi-render-uniffi/target/${{ matrix.target }}/release/${{ matrix.lib-name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.lib-name }}
 
   package:
     name: Package (C# & JVM)
@@ -84,8 +82,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          workspaces: |
-            bindings/takumi-render-uniffi -> target
 
       - name: Install uniffi-bindgen
         run: cargo install uniffi --version 0.31.1 --features cli
@@ -114,8 +110,7 @@ jobs:
       - name: Organize artifacts for Python script
         shell: pwsh
         run: |
-          $PROJECT_ROOT = "bindings/takumi-render-uniffi"
-          New-Item -ItemType Directory -Force -Path "$PROJECT_ROOT/target/release"
+          New-Item -ItemType Directory -Force -Path "target/release"
 
           $mapping = @{
             "linux-x64"  = "x86_64-unknown-linux-gnu"
@@ -126,12 +121,12 @@ jobs:
             "osx-arm64"  = "aarch64-apple-darwin"
           }
 
-          Copy-Item "native-libs/native-win-x64/takumi_render_uniffi.dll" "$PROJECT_ROOT/target/release/"
+          Copy-Item "native-libs/native-win-x64/takumi_render_uniffi.dll" "target/release/"
 
           foreach ($art in $mapping.Keys) {
             $triple = $mapping[$art]
-            New-Item -ItemType Directory -Force -Path "$PROJECT_ROOT/target/$triple/release"
-            Copy-Item "native-libs/native-$art/*" "$PROJECT_ROOT/target/$triple/release/"
+            New-Item -ItemType Directory -Force -Path "target/$triple/release"
+            Copy-Item "native-libs/native-$art/*" "target/$triple/release/"
           }
 
       - name: Build JVM Library

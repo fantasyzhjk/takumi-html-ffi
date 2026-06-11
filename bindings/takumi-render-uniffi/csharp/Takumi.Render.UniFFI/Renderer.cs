@@ -36,6 +36,11 @@ public sealed class Renderer : IDisposable
         Invoke(_inner.ClearCaches);
     }
 
+    public void SetImageCacheEnabled(bool enabled)
+    {
+        Invoke(() => _inner.SetImageCacheEnabled(enabled));
+    }
+
     public MeasuredLayout Measure(RenderRequest request)
     {
         return MeasuredLayout.FromGenerated(Invoke(() => _inner.Measure(request.ToGenerated())));

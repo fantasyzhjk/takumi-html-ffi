@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import shutil
@@ -124,8 +125,8 @@ def infer_rid_from_target_name(target_name: str) -> str | None:
     return f"{os_name}-{architecture}"
 
 
-def find_host_native_library(crate_dir: Path, base_name: str) -> Path:
-    release_dir = crate_dir / "target" / "release"
+def find_host_native_library(target_dir: Path, base_name: str) -> Path:
+    release_dir = target_dir / "release"
     for file_name in possible_native_filenames(base_name):
         candidate = release_dir / file_name
         if candidate.exists():
@@ -136,9 +137,8 @@ def find_host_native_library(crate_dir: Path, base_name: str) -> Path:
     )
 
 
-def collect_native_artifacts(crate_dir: Path, base_name: str) -> dict[str, Path]:
+def collect_native_artifacts(target_dir: Path, base_name: str) -> dict[str, Path]:
     artifacts: dict[str, Path] = {}
-    target_dir = crate_dir / "target"
     if not target_dir.exists():
         return artifacts
 
@@ -164,13 +164,11 @@ def collect_native_artifacts(crate_dir: Path, base_name: str) -> dict[str, Path]
     return artifacts
 
 
-def stage_native_artifacts(crate_dir: Path, base_name: str, destination_root: Path) -> None:
+def stage_native_artifacts(target_dir: Path, base_name: str, destination_root: Path) -> None:
     clean_dir(destination_root)
-    artifacts = collect_native_artifacts(crate_dir, base_name)
+    artifacts = collect_native_artifacts(target_dir, base_name)
     if not artifacts:
-        raise FileNotFoundError(
-            f"No native artifacts found for {base_name!r} under {crate_dir / 'target'}"
-        )
+        raise FileNotFoundError(f"No native artifacts found for {base_name!r} under {target_dir}")
 
     for rid, source_path in artifacts.items():
         target_dir = destination_root / rid
@@ -204,6 +202,21 @@ def build_release(manifest_path: Path) -> None:
     run(["cargo", "build", "--manifest-path", str(manifest_path), "--release"])
 
 
+def cargo_target_dir(manifest_path: Path) -> Path:
+    command = [
+        "cargo",
+        "metadata",
+        "--manifest-path",
+        str(manifest_path),
+        "--format-version",
+        "1",
+        "--no-deps",
+    ]
+    print(f"[DEBUG] Running: {' '.join(command)}", flush=True)
+    metadata = json.loads(subprocess.check_output(command, text=True))
+    return Path(metadata["target_directory"])
+
+
 def prepare_csharp(project_dir: Path) -> None:
     crate_dir = ROOT_DIR
     manifest_path = crate_dir / "Cargo.toml"
@@ -213,7 +226,8 @@ def prepare_csharp(project_dir: Path) -> None:
     scratch_dir = project_dir / "obj" / "uniffi-bindgen" / "csharp"
 
     build_release(manifest_path)
-    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    target_dir = cargo_target_dir(manifest_path)
+    native_library = find_host_native_library(target_dir, "takumi_render_uniffi")
 
     clean_dir(scratch_dir)
     bindgen_cs = locate_command(Path.home() / ".cargo/bin/uniffi-bindgen-cs", "uniffi-bindgen-cs")
@@ -238,7 +252,7 @@ def prepare_csharp(project_dir: Path) -> None:
 
     clean_dir(generated_bindings_dir)
     shutil.copy2(generated_component, generated_bindings_dir / "TakumiRenderUniffi.Generated.cs")
-    stage_native_artifacts(crate_dir, "takumi_render_uniffi", generated_native_dir)
+    stage_native_artifacts(target_dir, "takumi_render_uniffi", generated_native_dir)
 
 
 def prepare_kotlin(project_dir: Path) -> None:
@@ -250,7 +264,8 @@ def prepare_kotlin(project_dir: Path) -> None:
     scratch_dir = project_dir / "build" / "uniffi-bindgen" / "kotlin"
 
     build_release(manifest_path)
-    native_library = find_host_native_library(crate_dir, "takumi_render_uniffi")
+    target_dir = cargo_target_dir(manifest_path)
+    native_library = find_host_native_library(target_dir, "takumi_render_uniffi")
 
     clean_dir(scratch_dir)
     try:
@@ -278,7 +293,7 @@ def prepare_kotlin(project_dir: Path) -> None:
     )
 
     copy_matching_files(scratch_dir, generated_sources_dir, ".kt")
-    stage_native_artifacts(crate_dir, "takumi_render_uniffi", generated_resources_dir)
+    stage_native_artifacts(target_dir, "takumi_render_uniffi", generated_resources_dir)
 
 
 def parse_args() -> argparse.Namespace:

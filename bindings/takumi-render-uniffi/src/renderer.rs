@@ -17,8 +17,11 @@ use takumi_html::{
 };
 
 use crate::{
-    api::{RenderInput, MeasuredLayout, RenderRequest, RenderSize, RenderedImage},
-    cache::{FileCache, FontCache, absolute_path, hash_bytes, normalize_existing_path},
+    api::{MeasuredLayout, RenderInput, RenderRequest, RenderSize, RenderedImage},
+    cache::{
+        FileCache, FileSignature, FontCache, ImageCache, absolute_path, hash_bytes,
+        normalize_existing_path,
+    },
     error::{RendererError, Result},
     template::normalize_search_path,
 };
@@ -29,6 +32,7 @@ pub struct Renderer {
     search_paths: RwLock<Vec<PathBuf>>,
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
+    image_cache: Mutex<ImageCache>,
 }
 
 struct PreparedHtmlInput {
@@ -43,6 +47,7 @@ impl Default for Renderer {
             search_paths: RwLock::new(Vec::new()),
             file_cache: Arc::new(Mutex::new(FileCache::default())),
             font_cache: Mutex::new(FontCache::default()),
+            image_cache: Mutex::new(ImageCache::default()),
         }
     }
 }
@@ -91,6 +96,23 @@ impl Renderer {
             .lock()
             .map_err(|_| state_lock_error("font_cache"))?
             .clear();
+        self.image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?
+            .clear();
+        Ok(())
+    }
+
+    pub fn set_image_cache_enabled(&self, enabled: bool) -> Result<()> {
+        self.image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?
+            .set_enabled(enabled);
+        self.global
+            .lock()
+            .map_err(|_| state_lock_error("global"))?
+            .persistent_image_store
+            .clear();
         Ok(())
     }
 
@@ -122,9 +144,24 @@ impl Renderer {
             .unwrap_or_default()
     }
 
+    #[doc(hidden)]
+    pub fn debug_image_cache_entries(&self) -> usize {
+        self.image_cache
+            .lock()
+            .map(|cache| cache.entry_count())
+            .unwrap_or_default()
+    }
+
+    #[doc(hidden)]
+    pub fn debug_prune_image_cache(&self) -> Result<()> {
+        let pass = self.next_image_cache_pass()?;
+        self.prune_image_cache(pass)
+    }
+
     fn render_request(&self, request: RenderRequest) -> Result<RenderedImage> {
+        let pass = self.next_image_cache_pass()?;
         let html_result = self.prepare_html_result(&request)?;
-        let fetched_resources = self.preload_fetched_resources(&html_result)?;
+        let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
         let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
@@ -153,6 +190,8 @@ impl Renderer {
                 .build(),
         )?;
         let bytes = self.encode_image(&image, &request)?;
+        drop(global);
+        self.prune_image_cache(pass)?;
 
         Ok(RenderedImage {
             bytes,
@@ -164,8 +203,9 @@ impl Renderer {
     }
 
     fn measure_request(&self, request: RenderRequest) -> Result<MeasuredLayout> {
+        let pass = self.next_image_cache_pass()?;
         let html_result = self.prepare_html_result(&request)?;
-        let fetched_resources = self.preload_fetched_resources(&html_result)?;
+        let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
         let viewport = viewport_from_request(&request);
@@ -180,6 +220,8 @@ impl Renderer {
                 .build(),
         )?;
         let (width, height) = resolved_layout_size(&measured, request.viewport);
+        drop(global);
+        self.prune_image_cache(pass)?;
 
         Ok(MeasuredLayout { width, height })
     }
@@ -288,16 +330,17 @@ impl Renderer {
     fn preload_fetched_resources(
         &self,
         html_result: &FromHtmlResult,
+        pass: u64,
     ) -> Result<HashMap<Arc<str>, ImageSource>> {
         let mut fetched_resources = HashMap::new();
         let rendered_node_html = html_result.node.to_html();
 
         for url in collect_html_resource_urls(&rendered_node_html) {
-            self.maybe_insert_fetched_resource(&mut fetched_resources, &url)?;
+            self.maybe_insert_fetched_resource(&mut fetched_resources, &url, pass)?;
         }
 
         for url in collect_stylesheet_resource_urls(html_result.stylesheet_sources()) {
-            self.maybe_insert_fetched_resource(&mut fetched_resources, &url)?;
+            self.maybe_insert_fetched_resource(&mut fetched_resources, &url, pass)?;
         }
 
         Ok(fetched_resources)
@@ -307,55 +350,102 @@ impl Renderer {
         &self,
         fetched_resources: &mut HashMap<Arc<str>, ImageSource>,
         raw_url: &str,
+        pass: u64,
     ) -> Result<()> {
         if fetched_resources.contains_key(raw_url) || !is_local_cached_asset_reference(raw_url) {
             return Ok(());
         }
 
-        let image = self.load_cached_image(raw_url)?;
+        let image = self.load_cached_image(raw_url, pass)?;
         fetched_resources.insert(Arc::<str>::from(raw_url), image);
         Ok(())
     }
 
-    fn load_cached_image(&self, raw_url: &str) -> Result<ImageSource> {
+    fn load_cached_image(&self, raw_url: &str, pass: u64) -> Result<ImageSource> {
         let (path_part, _) = split_reference_suffix(raw_url);
         let normalized = normalize_existing_path(&cached_asset_reference_path(path_part))?;
         let cache_key = normalized.to_string_lossy().replace('\\', "/");
-
-        if let Some(image) = self
-            .global
+        let enabled = self
+            .image_cache
             .lock()
-            .map_err(|_| state_lock_error("global"))?
-            .persistent_image_store
-            .get(&cache_key)
+            .map_err(|_| state_lock_error("image_cache"))?
+            .is_enabled();
+
+        if !enabled {
+            return self.decode_image_file(&normalized);
+        }
+
+        let signature = FileSignature::from_path(&normalized)?;
+        if let Some(image) = self
+            .image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?
+            .get_auto(&cache_key, &signature, pass)
         {
             return Ok(image);
         }
 
+        let image = self.decode_image_file(&normalized)?;
+        self.image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?
+            .insert(cache_key.clone(), signature, image.clone(), pass);
+        self.store_persistent_image(cache_key, image.clone())?;
+
+        Ok(image)
+    }
+
+    fn decode_image_file(&self, normalized: &Path) -> Result<ImageSource> {
         let bytes = {
             let mut file_cache = self
                 .file_cache
                 .lock()
                 .map_err(|_| state_lock_error("file_cache"))?;
-            file_cache.read_bytes(&normalized)?
+            file_cache.read_bytes(normalized)?
         };
-        let image = ImageSource::from_bytes(bytes.as_ref().as_slice())
-            .map_err(|error| RendererError::Render(error.to_string()))?;
+        ImageSource::from_bytes(bytes.as_ref().as_slice())
+            .map_err(|error| RendererError::Render(error.to_string()))
+    }
 
+    fn store_persistent_image(&self, cache_key: String, image: ImageSource) -> Result<()> {
         self.global
             .lock()
             .map_err(|_| state_lock_error("global"))?
             .persistent_image_store
-            .insert(cache_key, image.clone());
+            .insert(cache_key, image);
 
-        Ok(image)
+        Ok(())
     }
 
-    fn encode_image(
-        &self,
-        image: &image::RgbaImage,
-        request: &RenderRequest,
-    ) -> Result<Vec<u8>> {
+    fn next_image_cache_pass(&self) -> Result<u64> {
+        Ok(self
+            .image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?
+            .next_pass())
+    }
+
+    fn prune_image_cache(&self, pass: u64) -> Result<()> {
+        let entries = {
+            let mut image_cache = self
+                .image_cache
+                .lock()
+                .map_err(|_| state_lock_error("image_cache"))?;
+            if !image_cache.is_enabled() || !image_cache.prune(pass) {
+                return Ok(());
+            }
+            image_cache.persistent_entries()
+        };
+
+        let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
+        global.persistent_image_store.clear();
+        for (key, image) in entries {
+            global.persistent_image_store.insert(key, image);
+        }
+        Ok(())
+    }
+
+    fn encode_image(&self, image: &image::RgbaImage, request: &RenderRequest) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         write_image(
             Cow::Borrowed(image),
@@ -497,11 +587,7 @@ fn viewport_from_request(request: &RenderRequest) -> Viewport {
     viewport
 }
 
-fn resolved_viewport_from_request(
-    request: &RenderRequest,
-    width: u32,
-    height: u32,
-) -> Viewport {
+fn resolved_viewport_from_request(request: &RenderRequest, width: u32, height: u32) -> Viewport {
     let mut viewport = Viewport::new((width, height));
     if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
         viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
@@ -739,10 +825,10 @@ fn state_lock_error(name: &str) -> RendererError {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, time::Duration};
 
     use super::{Renderer, collect_font_files, collect_stylesheet_resource_urls};
-    use crate::api::{RenderInput, ImageFormat, RenderRequest, RenderSize};
+    use crate::api::{ImageFormat, RenderInput, RenderRequest, RenderSize};
     use crate::cache::normalize_existing_path;
     use tempfile::tempdir;
 
@@ -864,10 +950,35 @@ mod tests {
     }
 
     #[test]
-    fn persistent_image_store_reuses_absolute_path_images() {
+    fn auto_image_cache_reloads_when_source_file_changes() {
         let temp = tempdir().expect("tempdir");
         let image_path = temp.path().join("relative.png");
-        fs::write(&image_path, tiny_png_bytes()).expect("write image");
+        fs::write(&image_path, solid_png_bytes([255, 0, 0, 255])).expect("write red image");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_search_path(temp.path().to_string_lossy().into_owned())
+            .expect("add search path");
+        let request = inline_html_request(
+            r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+        );
+
+        let first = renderer
+            .render(request.clone())
+            .expect("render red local image");
+        assert!(rendered_contains_pixel(&first.bytes, [255, 0, 0, 255]));
+
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&image_path, solid_png_bytes([0, 0, 255, 255])).expect("write blue image");
+
+        let second = renderer.render(request).expect("render blue local image");
+        assert!(rendered_contains_pixel(&second.bytes, [0, 0, 255, 255]));
+    }
+
+    #[test]
+    fn auto_image_cache_reuses_unchanged_images() {
+        let temp = tempdir().expect("tempdir");
+        fs::write(temp.path().join("relative.png"), tiny_png_bytes()).expect("write image");
 
         let renderer = Renderer::default();
         renderer
@@ -879,16 +990,70 @@ mod tests {
 
         renderer
             .render(request.clone())
-            .expect("render local image the first time");
+            .expect("render local image first time");
+        renderer
+            .render(request)
+            .expect("render local image second time");
+
+        assert_eq!(renderer.debug_image_cache_entries(), 1);
+    }
+
+    #[test]
+    fn disabled_image_cache_does_not_reuse_images_after_source_is_removed() {
+        let temp = tempdir().expect("tempdir");
+        let image_path = temp.path().join("relative.png");
+        fs::write(&image_path, tiny_png_bytes()).expect("write image");
+
+        let renderer = Renderer::default();
+        renderer
+            .set_image_cache_enabled(false)
+            .expect("disable image cache");
+        renderer
+            .add_search_path(temp.path().to_string_lossy().into_owned())
+            .expect("add search path");
+        renderer
+            .render(inline_html_request(
+                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+            ))
+            .expect("render local image");
+
+        assert_eq!(renderer.debug_image_cache_entries(), 0);
+
         let absolute_reference = normalize_existing_path(&image_path)
             .expect("normalize image path")
             .to_string_lossy()
             .replace('\\', "/");
         fs::remove_file(&image_path).expect("remove source image");
+        let pass = renderer.next_image_cache_pass().expect("next pass");
 
         renderer
-            .load_cached_image(&absolute_reference)
-            .expect("load image from persistent store");
+            .load_cached_image(&absolute_reference, pass)
+            .expect_err("disabled cache should not reuse deleted source image");
+    }
+
+    #[test]
+    fn auto_image_cache_prunes_inactive_images() {
+        let temp = tempdir().expect("tempdir");
+        fs::write(temp.path().join("relative.png"), tiny_png_bytes()).expect("write image");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_search_path(temp.path().to_string_lossy().into_owned())
+            .expect("add search path");
+        renderer
+            .render(inline_html_request(
+                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
+            ))
+            .expect("render local image");
+        assert_eq!(renderer.debug_image_cache_entries(), 1);
+
+        for _ in 0..65 {
+            renderer
+                .debug_prune_image_cache()
+                .expect("prune image cache");
+        }
+
+        assert_eq!(renderer.debug_image_cache_entries(), 0);
     }
 
     #[test]
@@ -1011,7 +1176,7 @@ mod tests {
         assert_eq!(stylesheet_urls, vec![expected.clone()]);
 
         let preloaded = renderer
-            .preload_fetched_resources(&html_result)
+            .preload_fetched_resources(&html_result, 1)
             .expect("preload resources");
         assert!(
             preloaded.contains_key(expected.as_str()),
@@ -1047,7 +1212,11 @@ mod tests {
     }
 
     fn tiny_png_bytes() -> Vec<u8> {
-        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        solid_png_bytes([255, 0, 0, 255])
+    }
+
+    fn solid_png_bytes(color: [u8; 4]) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(color));
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(image)
             .write_to(
@@ -1056,5 +1225,13 @@ mod tests {
             )
             .expect("encode tiny png");
         bytes
+    }
+
+    fn rendered_contains_pixel(bytes: &[u8], color: [u8; 4]) -> bool {
+        image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+            .expect("decode rendered png")
+            .to_rgba8()
+            .pixels()
+            .any(|pixel| pixel.0 == color)
     }
 }
