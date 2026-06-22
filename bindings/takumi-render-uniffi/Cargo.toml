@@ -18,6 +18,7 @@ syntect = { version = "5", features = ["html"] }
 
 takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
 takumi-html = { path = "../../takumi-html" }
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false }
 thiserror = "2.0"
 uniffi = "0.29.5"
 

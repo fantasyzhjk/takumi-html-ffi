@@ -68,6 +68,7 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
         quality: Some(100),
         load_linked_stylesheets: None,
         normalize_whitespace: None,
+        emoji_type: None,
     };
 
     let rendered = renderer
@@ -519,6 +520,7 @@ fn html_request(html: String, format: ImageFormat) -> RenderRequest {
         quality: Some(100),
         load_linked_stylesheets: None,
         normalize_whitespace: None,
+        emoji_type: None,
     }
 }
 
@@ -540,6 +542,7 @@ fn inline_render_request(
         quality,
         load_linked_stylesheets: None,
         normalize_whitespace: None,
+        emoji_type: None,
     }
 }
 

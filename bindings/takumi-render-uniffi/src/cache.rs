@@ -1,11 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    hash::{Hash, Hasher},
-    io,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::UNIX_EPOCH,
+    collections::{HashMap, HashSet}, fs, hash::{Hash, Hasher}, io, ops::Deref, path::{Path, PathBuf}, sync::Arc, time::UNIX_EPOCH
 };
 
 use takumi::prelude::ImageSource;
@@ -32,6 +26,15 @@ impl FileSignature {
             len: metadata.len(),
             modified_nanos,
         })
+    }
+
+    /// Placeholder signature for remote URLs. Matches itself so cached entries
+    /// stay valid until LRU eviction.
+    pub(crate) fn remote() -> Self {
+        Self {
+            len: 0,
+            modified_nanos: None,
+        }
     }
 }
 
@@ -181,7 +184,7 @@ impl FileCache {
 
     pub(crate) fn read_string(&mut self, path: &Path) -> crate::Result<String> {
         let bytes = self.read_bytes(path)?;
-        Ok(String::from_utf8(bytes.as_ref().clone())?)
+        Ok(String::from_utf8(bytes.deref().clone())?)
     }
 }
 

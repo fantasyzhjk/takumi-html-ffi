@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::{
     api::{InlineTemplateInput, TemplateRequest, TemplateContentKind, TemplateInput},
     cache::{FileCache, normalize_existing_path},
-    error::{RendererError, Result},
+    error::{RendererError, Result, state_lock_error},
     markdown::{self, FormattingConfig, render_markdown_to_html},
 };
 
@@ -550,10 +550,6 @@ fn highlight_filter(
 
 fn template_filter_error(error: RendererError) -> Error {
     Error::new(ErrorKind::InvalidOperation, error.to_string())
-}
-
-fn state_lock_error(name: &str) -> RendererError {
-    RendererError::Render(format!("template engine state lock `{name}` was poisoned"))
 }
 
 #[cfg(test)]

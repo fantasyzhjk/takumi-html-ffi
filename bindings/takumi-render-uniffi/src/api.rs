@@ -1,10 +1,34 @@
 use takumi::prelude::{OutputFormat, Quality};
+use takumi_html::EmojiType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum ImageFormat {
     Png,
     WebP,
     Jpeg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EmojiSet {
+    Twemoji,
+    Blobmoji,
+    Noto,
+    Openmoji,
+    Fluent,
+    FluentFlat,
+}
+
+impl EmojiSet {
+    pub(crate) fn into_emoji_type(self) -> EmojiType {
+        match self {
+            Self::Twemoji => EmojiType::Twemoji,
+            Self::Blobmoji => EmojiType::Blobmoji,
+            Self::Noto => EmojiType::Noto,
+            Self::Openmoji => EmojiType::Openmoji,
+            Self::Fluent => EmojiType::Fluent,
+            Self::FluentFlat => EmojiType::FluentFlat,
+        }
+    }
 }
 
 impl ImageFormat {
@@ -91,6 +115,7 @@ pub struct RenderRequest {
     pub quality: Option<u8>,
     pub load_linked_stylesheets: Option<bool>,
     pub normalize_whitespace: Option<bool>,
+    pub emoji_type: Option<EmojiSet>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

@@ -83,3 +83,7 @@ impl From<FromUtf8Error> for RendererError {
         Self::Template(value.to_string())
     }
 }
+
+pub(crate) fn state_lock_error(name: &str) -> RendererError {
+    RendererError::Render(format!("state lock `{name}` was poisoned"))
+}

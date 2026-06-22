@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
+use reqwest::blocking::Client;
 use takumi::prelude::{
     Bitmap, FontResource, Fonts, ImageSource, MeasuredNode, RenderOptions, Viewport,
 };
@@ -19,7 +20,7 @@ use crate::{
         FileCache, FileSignature, FontCache, ImageCache, absolute_path, hash_bytes,
         normalize_existing_path,
     },
-    error::{RendererError, Result},
+    error::{RendererError, Result, state_lock_error},
     template::normalize_search_path,
 };
 
@@ -30,6 +31,7 @@ pub struct Renderer {
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
     image_cache: Mutex<ImageCache>,
+    http_client: Client,
 }
 
 struct PreparedHtmlInput {
@@ -45,6 +47,7 @@ impl Default for Renderer {
             file_cache: Arc::new(Mutex::new(FileCache::default())),
             font_cache: Mutex::new(FontCache::default()),
             image_cache: Mutex::new(ImageCache::default()),
+            http_client: Client::new(),
         }
     }
 }
@@ -160,7 +163,7 @@ impl Renderer {
         let viewport = if request_has_auto_viewport(&request) {
             let measured = measure(
                 RenderOptions::builder()
-                    .viewport(viewport_from_request(&request))
+                    .viewport(make_viewport_from_request(&request))
                     .node(node.clone())
                     .images(fetched_resources.clone())
                     .stylesheet(stylesheet.clone())
@@ -168,9 +171,9 @@ impl Renderer {
                     .build(),
             )?;
             let (width, height) = resolved_layout_size(&measured, request.viewport.clone());
-            resolved_viewport_from_request(&request, width, height)
+            make_viewport(Some(width), Some(height), request.viewport.device_pixel_ratio)
         } else {
-            viewport_from_request(&request)
+            make_viewport_from_request(&request)
         };
         let image = takumi_render(
             RenderOptions::builder()
@@ -200,7 +203,7 @@ impl Renderer {
         let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
-        let viewport = viewport_from_request(&request);
+        let viewport = make_viewport_from_request(&request);
         let fonts = self.fonts.lock().map_err(|_| state_lock_error("fonts"))?;
         let measured = measure(
             RenderOptions::builder()
@@ -268,6 +271,10 @@ impl Renderer {
             .normalize_whitespace(request.normalize_whitespace.unwrap_or(true))
             .local_asset_mode(LocalAssetMode::AbsolutePath);
 
+        if let Some(emoji_type) = request.emoji_type {
+            options = options.emoji_type(emoji_type.into_emoji_type());
+        }
+
         if let Some(base_path) = base_path {
             options = options.with_base_path(base_path);
         }
@@ -325,14 +332,9 @@ impl Renderer {
         pass: u64,
     ) -> Result<HashMap<Arc<str>, ImageSource>> {
         let mut fetched_resources = HashMap::new();
-        let rendered_node_html = html_result.node.to_html();
 
-        for url in collect_html_resource_urls(&rendered_node_html) {
-            self.maybe_insert_fetched_resource(&mut fetched_resources, &url, pass)?;
-        }
-
-        for url in collect_stylesheet_resource_urls(html_result.stylesheet_sources()) {
-            self.maybe_insert_fetched_resource(&mut fetched_resources, &url, pass)?;
+        for url in html_result.resource_urls() {
+            self.maybe_insert_fetched_resource(&mut fetched_resources, url, pass)?;
         }
 
         Ok(fetched_resources)
@@ -344,38 +346,75 @@ impl Renderer {
         raw_url: &str,
         pass: u64,
     ) -> Result<()> {
-        if fetched_resources.contains_key(raw_url) || !is_local_cached_asset_reference(raw_url) {
+        if fetched_resources.contains_key(raw_url) {
             return Ok(());
         }
 
-        let image = self.load_cached_image(raw_url, pass)?;
-        fetched_resources.insert(Arc::<str>::from(raw_url), image);
+        if is_local_cached_asset_reference(raw_url) {
+            let image = self.load_cached_image(raw_url, pass)?;
+            fetched_resources.insert(Arc::<str>::from(raw_url), image);
+        } else if is_remote_url(raw_url) {
+            let image = self.fetch_remote_image(raw_url, pass)?;
+            fetched_resources.insert(Arc::<str>::from(raw_url), image);
+        }
+
         Ok(())
+    }
+
+    fn fetch_remote_image(&self, url: &str, pass: u64) -> Result<ImageSource> {
+        let mut cache = self
+            .image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?;
+
+        if cache.is_enabled() {
+            let signature = FileSignature::remote();
+            if let Some(image) = cache.get_auto(url, &signature, pass) {
+                return Ok(image);
+            }
+        }
+        drop(cache);
+
+        let bytes = self
+            .http_client
+            .get(url)
+            .send()
+            .and_then(|resp| resp.error_for_status()?.bytes())
+            .map_err(|error| RendererError::Render(format!("failed to fetch `{url}`: {error}")))?;
+
+        let image = ImageSource::from_bytes(&bytes)
+            .map_err(|error| RendererError::Render(error.to_string()))?;
+
+        let mut cache = self
+            .image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?;
+        if cache.is_enabled() {
+            cache.insert(url.to_string(), FileSignature::remote(), image.clone(), pass);
+        }
+        Ok(image)
     }
 
     fn load_cached_image(&self, raw_url: &str, pass: u64) -> Result<ImageSource> {
         let (path_part, _) = split_reference_suffix(raw_url);
         let normalized = normalize_existing_path(&cached_asset_reference_path(path_part))?;
         let cache_key = normalized.to_string_lossy().replace('\\', "/");
-        let enabled = self
+
+        let mut cache = self
             .image_cache
             .lock()
-            .map_err(|_| state_lock_error("image_cache"))?
-            .is_enabled();
+            .map_err(|_| state_lock_error("image_cache"))?;
 
-        if !enabled {
+        if !cache.is_enabled() {
+            drop(cache);
             return self.decode_image_file(&normalized);
         }
 
         let signature = FileSignature::from_path(&normalized)?;
-        if let Some(image) = self
-            .image_cache
-            .lock()
-            .map_err(|_| state_lock_error("image_cache"))?
-            .get_auto(&cache_key, &signature, pass)
-        {
+        if let Some(image) = cache.get_auto(&cache_key, &signature, pass) {
             return Ok(image);
         }
+        drop(cache);
 
         let image = self.decode_image_file(&normalized)?;
         self.image_cache
@@ -393,7 +432,7 @@ impl Renderer {
                 .map_err(|_| state_lock_error("file_cache"))?;
             file_cache.read_bytes(normalized)?
         };
-        ImageSource::from_bytes(bytes.as_ref().as_slice())
+        ImageSource::from_bytes(&bytes)
             .map_err(|error| RendererError::Render(error.to_string()))
     }
 
@@ -472,7 +511,7 @@ impl Renderer {
         self.fonts
             .lock()
             .map_err(|_| state_lock_error("fonts"))?
-            .register(FontResource::new(bytes.as_ref().as_slice()))?;
+            .register(FontResource::new(&*bytes))?;
 
         let mut font_cache = self
             .font_cache
@@ -547,20 +586,20 @@ fn validate_request(request: &RenderRequest) -> Result<()> {
     Ok(())
 }
 
-fn viewport_from_request(request: &RenderRequest) -> Viewport {
-    let mut viewport = Viewport::new((request.viewport.width, request.viewport.height));
-    if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
-        viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
+fn make_viewport(width: Option<u32>, height: Option<u32>, device_pixel_ratio: Option<f32>) -> Viewport {
+    let mut viewport = Viewport::new((width, height));
+    if let Some(dpr) = device_pixel_ratio {
+        viewport = viewport.with_device_pixel_ratio(dpr);
     }
     viewport
 }
 
-fn resolved_viewport_from_request(request: &RenderRequest, width: u32, height: u32) -> Viewport {
-    let mut viewport = Viewport::new((width, height));
-    if let Some(device_pixel_ratio) = request.viewport.device_pixel_ratio {
-        viewport = viewport.with_device_pixel_ratio(device_pixel_ratio);
-    }
-    viewport
+fn make_viewport_from_request(request: &RenderRequest) -> Viewport {
+    make_viewport(
+        request.viewport.width,
+        request.viewport.height,
+        request.viewport.device_pixel_ratio,
+    )
 }
 
 fn request_has_auto_viewport(request: &RenderRequest) -> bool {
@@ -575,98 +614,6 @@ fn resolved_layout_size(measured: &MeasuredNode, viewport: RenderSize) -> (u32, 
         .height
         .unwrap_or_else(|| measured.height.round().max(0.0) as u32);
     (width, height)
-}
-
-fn collect_stylesheet_resource_urls(stylesheets: &[String]) -> Vec<String> {
-    let mut urls = Vec::new();
-
-    for stylesheet in stylesheets {
-        let mut cursor = 0;
-        while cursor < stylesheet.len() {
-            if let Some((token, end_index)) = parse_url_token(stylesheet, cursor) {
-                urls.push(token);
-                cursor = end_index;
-                continue;
-            }
-
-            let ch = stylesheet[cursor..]
-                .chars()
-                .next()
-                .expect("cursor always points to a valid character boundary");
-            cursor += ch.len_utf8();
-        }
-    }
-
-    urls
-}
-
-fn collect_html_resource_urls(markup: &str) -> Vec<String> {
-    let mut urls = collect_stylesheet_resource_urls(&[markup.to_string()]);
-    let mut cursor = 0;
-
-    while let Some(relative_start) = markup[cursor..].find("src=\"") {
-        let value_start = cursor + relative_start + 5;
-        let Some(relative_end) = markup[value_start..].find('"') else {
-            break;
-        };
-        let value_end = value_start + relative_end;
-        urls.push(markup[value_start..value_end].to_string());
-        cursor = value_end + 1;
-    }
-
-    urls
-}
-
-fn parse_url_token(source: &str, start: usize) -> Option<(String, usize)> {
-    let bytes = source.as_bytes();
-    if bytes.get(start..start + 3)?.eq_ignore_ascii_case(b"url") {
-        let mut cursor = start + 3;
-        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-            cursor += 1;
-        }
-
-        if !matches!(bytes.get(cursor), Some(b'(')) {
-            return None;
-        }
-        cursor += 1;
-
-        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-            cursor += 1;
-        }
-
-        let quote = match bytes.get(cursor) {
-            Some(b'\'') => Some('\''),
-            Some(b'\"') => Some('\"'),
-            _ => None,
-        };
-
-        if quote.is_some() {
-            cursor += 1;
-        }
-
-        let value_start = cursor;
-        while let Some(ch) = source[cursor..].chars().next() {
-            if let Some(quote) = quote {
-                if ch == quote {
-                    let value = source[value_start..cursor].to_owned();
-                    cursor += ch.len_utf8();
-                    while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-                        cursor += 1;
-                    }
-                    if matches!(bytes.get(cursor), Some(b')')) {
-                        return Some((value, cursor + 1));
-                    }
-                    return None;
-                }
-            } else if ch == ')' {
-                let value = source[value_start..cursor].trim().to_owned();
-                return Some((value, cursor + 1));
-            }
-            cursor += ch.len_utf8();
-        }
-    }
-
-    None
 }
 
 fn split_reference_suffix(reference: &str) -> (&str, &str) {
@@ -713,6 +660,11 @@ fn is_windows_verbatim_path(path_part: &str) -> bool {
 #[cfg(not(windows))]
 fn is_windows_verbatim_path(_: &str) -> bool {
     false
+}
+
+fn is_remote_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 fn is_local_cached_asset_reference(reference: &str) -> bool {
@@ -784,15 +736,11 @@ fn is_supported_font_file(path: &Path) -> bool {
         .is_some_and(|ext| matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc"))
 }
 
-fn state_lock_error(name: &str) -> RendererError {
-    RendererError::Render(format!("renderer state lock `{name}` was poisoned"))
-}
-
 #[cfg(test)]
 mod tests {
     use std::{fs, time::Duration};
 
-    use super::{Renderer, collect_font_files, collect_stylesheet_resource_urls};
+    use super::{Renderer, collect_font_files};
     use crate::api::{ImageFormat, RenderInput, RenderRequest, RenderSize};
     use crate::cache::normalize_existing_path;
     use tempfile::tempdir;
@@ -812,6 +760,7 @@ mod tests {
             quality: None,
             load_linked_stylesheets: None,
             normalize_whitespace: None,
+            emoji_type: None,
         }
     }
 
@@ -1050,6 +999,7 @@ mod tests {
                 quality: None,
                 load_linked_stylesheets: None,
                 normalize_whitespace: None,
+            emoji_type: None,
             })
             .expect("render html file");
 
@@ -1095,6 +1045,7 @@ mod tests {
                 quality: None,
                 load_linked_stylesheets: None,
                 normalize_whitespace: None,
+            emoji_type: None,
             })
             .expect("render with dpr");
 
@@ -1137,8 +1088,11 @@ mod tests {
             .expect("normalize image path")
             .to_string_lossy()
             .replace('\\', "/");
-        let stylesheet_urls = collect_stylesheet_resource_urls(html_result.stylesheet_sources());
-        assert_eq!(stylesheet_urls, vec![expected.clone()]);
+        let all_urls: Vec<&str> = html_result.resource_urls().collect();
+        assert!(
+            all_urls.contains(&expected.as_str()),
+            "expected resolved stylesheet URL `{expected}` in resource_urls, got {all_urls:?}"
+        );
 
         let preloaded = renderer
             .preload_fetched_resources(&html_result, 1)
@@ -1170,10 +1124,158 @@ mod tests {
             quality: None,
             load_linked_stylesheets: None,
             normalize_whitespace: None,
+            emoji_type: None,
         };
 
         let error = super::validate_request(&request).expect_err("reject zero width");
         assert!(error.to_string().contains("viewport width"));
+    }
+
+    #[test]
+    fn emoji_type_replaces_emoji_with_cdn_images() {
+        use crate::api::EmojiSet;
+
+        let renderer = Renderer::default();
+        let request = RenderRequest {
+            input: RenderInput::Inline("<div>Hello 😀</div>".to_string()),
+            viewport: RenderSize {
+                width: Some(20),
+                height: Some(20),
+                device_pixel_ratio: None,
+            },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            normalize_whitespace: None,
+            emoji_type: Some(EmojiSet::Twemoji),
+        };
+        let prepared = renderer.resolve_markup_input(&request).unwrap();
+        let html_result = renderer
+            .convert_markup(&prepared.markup, &request, &prepared.search_paths)
+            .unwrap();
+
+        let urls: Vec<&str> = html_result.resource_urls().collect();
+        assert!(
+            urls.iter().any(|u| u.contains("1f600.svg")),
+            "expected Twemoji URL for 😀 in resource_urls, got {urls:?}"
+        );
+
+        let rendered = html_result.node.to_html();
+        assert!(
+            rendered.contains("cdn.jsdelivr.net"),
+            "expected CDN image in rendered HTML, got {rendered}"
+        );
+    }
+
+    #[test]
+    fn emoji_renders_from_local_svg() {
+        // Emoji CDN URLs are remote and won't be fetched by preload_fetched_resources.
+        // To actually render emoji images, the caller must pre-fetch them into the
+        // images map. Here we simulate this by placing a local SVG that the renderer
+        // can load through the search path mechanism.
+        let temp = tempdir().expect("tempdir");
+        let emoji_svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\"><circle cx=\"18\" cy=\"18\" r=\"16\" fill=\"#FF0000\"/></svg>";
+        fs::write(temp.path().join("emoji.svg"), emoji_svg).expect("write emoji svg");
+
+        let renderer = Renderer::default();
+        renderer
+            .add_search_path(temp.path().to_string_lossy().into_owned())
+            .expect("add search path");
+
+        // Render with a local SVG image to verify the SVG rendering pipeline works
+        let request = RenderRequest {
+            input: RenderInput::Inline(
+                r#"<div style="width: 32px; height: 32px;"><img src="emoji.svg" width="32" height="32"></div>"#
+                    .to_string(),
+            ),
+            viewport: RenderSize {
+                width: Some(32),
+                height: Some(32),
+                device_pixel_ratio: None,
+            },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            normalize_whitespace: None,
+            emoji_type: None,
+        };
+        let rendered = renderer.render(request).expect("render local svg");
+
+        let decoded = image::load_from_memory_with_format(&rendered.bytes, image::ImageFormat::Png)
+            .expect("decode rendered png");
+        let has_red_pixel = decoded
+            .to_rgba8()
+            .pixels()
+            .any(|pixel| pixel.0[0] > 200 && pixel.0[1] < 50 && pixel.0[2] < 50);
+        assert!(
+            has_red_pixel,
+            "expected red pixel from emoji SVG circle"
+        );
+    }
+
+    #[test]
+    fn no_emoji_type_preserves_emoji_as_text() {
+        let renderer = Renderer::default();
+        let request = RenderRequest {
+            input: RenderInput::Inline("<div>Hello 😀</div>".to_string()),
+            viewport: RenderSize {
+                width: Some(20),
+                height: Some(20),
+                device_pixel_ratio: None,
+            },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            normalize_whitespace: None,
+            emoji_type: None,
+        };
+        let prepared = renderer.resolve_markup_input(&request).unwrap();
+        let html_result = renderer
+            .convert_markup(&prepared.markup, &request, &prepared.search_paths)
+            .unwrap();
+
+        let rendered = html_result.node.to_html();
+        assert!(
+            rendered.contains("😀"),
+            "expected emoji preserved as text when emoji_type is None, got {rendered}"
+        );
+        assert!(
+            !rendered.contains("cdn.jsdelivr.net"),
+            "should not contain CDN URL when emoji_type is None"
+        );
+    }
+
+    #[test]
+    #[ignore] // requires network access
+    fn emoji_renders_from_cdn() {
+        use crate::api::EmojiSet;
+
+        let renderer = Renderer::new();
+        let request = RenderRequest {
+            input: RenderInput::Inline("<div style=\"width: 32px; height: 32px;\">Hello 😀</div>".to_string()),
+            viewport: RenderSize {
+                width: Some(32),
+                height: Some(32),
+                device_pixel_ratio: None,
+            },
+            format: ImageFormat::Png,
+            quality: None,
+            load_linked_stylesheets: None,
+            normalize_whitespace: None,
+            emoji_type: Some(EmojiSet::Twemoji),
+        };
+        let rendered = renderer.render(request).expect("render emoji from CDN");
+
+        let decoded = image::load_from_memory_with_format(&rendered.bytes, image::ImageFormat::Png)
+            .expect("decode rendered png");
+        // The emoji SVG contains colored pixels; verify the image is not blank.
+        let has_non_white_pixel = decoded.to_rgba8().pixels().any(|p| {
+            !(p.0[0] > 250 && p.0[1] > 250 && p.0[2] > 250)
+        });
+        assert!(
+            has_non_white_pixel,
+            "expected emoji pixels in rendered image"
+        );
     }
 
     fn tiny_png_bytes() -> Vec<u8> {

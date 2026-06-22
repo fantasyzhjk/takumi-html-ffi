@@ -8,7 +8,7 @@ mod style;
 
 use std::{fmt, path::PathBuf};
 
-use takumi::prelude::{Node, StyleSheet};
+use takumi::prelude::{Node, NodeKind, ImageSourceInput, StyleSheet};
 use takumi_css::error::StyleSheetParseError;
 
 pub use emoji::EmojiType;
@@ -101,6 +101,99 @@ impl FromHtmlResult {
     {
         StyleSheet::parse_owned_list_loosy(self.into_stylesheet_sources_with(additional))
     }
+
+    /// Returns all resource URLs referenced by this result, combining node-level
+    /// resources (image `src`, inline style `url(...)`) with stylesheet-level
+    /// resources (`url(...)` in extracted `<style>` and linked CSS).
+    pub fn resource_urls(&self) -> impl Iterator<Item = &str> {
+        // Node::resource_urls() covers inline/preset/tw style url(...) but only
+        // returns remote image src URLs. We supplement with all image src URLs
+        // (including local paths) via our own traversal.
+        let mut image_urls = Vec::new();
+        collect_image_src_urls(&self.node, &mut image_urls);
+
+        self.node
+            .resource_urls()
+            .chain(image_urls)
+            .chain(self.stylesheets.iter().flat_map(|s| css_resource_urls(s)))
+    }
+}
+
+fn collect_image_src_urls<'a>(node: &'a Node, urls: &mut Vec<&'a str>) {
+    if let NodeKind::Image(image) = &node.kind {
+        if let ImageSourceInput::Url(src) = &image.src {
+            urls.push(src.as_ref());
+        }
+    }
+    if let NodeKind::Container { children } = &node.kind {
+        for child in children {
+            collect_image_src_urls(child, urls);
+        }
+    }
+}
+
+fn css_resource_urls(stylesheet: &str) -> impl Iterator<Item = &str> {
+    let mut cursor = 0;
+    std::iter::from_fn(move || {
+        while cursor < stylesheet.len() {
+            if let Some((token, end_index)) = parse_css_url_token(stylesheet, cursor) {
+                cursor = end_index;
+                return Some(token);
+            }
+            let ch = stylesheet[cursor..]
+                .chars()
+                .next()
+                .expect("cursor always points to a valid character boundary");
+            cursor += ch.len_utf8();
+        }
+        None
+    })
+}
+
+fn parse_css_url_token<'a>(source: &'a str, start: usize) -> Option<(&'a str, usize)> {
+    let bytes = source.as_bytes();
+    if bytes.get(start..start + 3)?.eq_ignore_ascii_case(b"url") {
+        let mut cursor = start + 3;
+        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
+            cursor += 1;
+        }
+        if !matches!(bytes.get(cursor), Some(b'(')) {
+            return None;
+        }
+        cursor += 1;
+        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
+            cursor += 1;
+        }
+        let quote = match bytes.get(cursor) {
+            Some(b'\'') => Some('\''),
+            Some(b'"') => Some('"'),
+            _ => None,
+        };
+        if quote.is_some() {
+            cursor += 1;
+        }
+        let value_start = cursor;
+        while let Some(ch) = source[cursor..].chars().next() {
+            if let Some(quote) = quote {
+                if ch == quote {
+                    let value = &source[value_start..cursor];
+                    cursor += ch.len_utf8();
+                    while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
+                        cursor += 1;
+                    }
+                    if matches!(bytes.get(cursor), Some(b')')) {
+                        return Some((value, cursor + 1));
+                    }
+                    return None;
+                }
+            } else if ch == ')' {
+                let value = source[value_start..cursor].trim();
+                return Some((value, cursor + 1));
+            }
+            cursor += ch.len_utf8();
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

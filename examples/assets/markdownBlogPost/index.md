@@ -1,29 +1,25 @@
 <link rel="stylesheet" href="styles.scss" />
 
-![Author avatar](../guestAvatar.png)
+![Author avatar](https://a.ppy.sh/9037287?1774105852.png)
 
-# Optional `context_json` for plain Markdown
+# 🎉 Markdown + Emoji + Remote Images
 
-This example renders a complete card from **Markdown** only.
+This renders a card from **Markdown** with Twemoji. 🚀
 
-## What this shows
+## What this shows ✨
 
-• `context_json` can be `None`
+- `context_json` can be `None`
+- Remote images load from CDN 🌐
+- Emoji rendered as Twemoji 🎨
 
-• `styles.css` is loaded like a normal linked stylesheet
-
-• local images resolve relative to the markdown file
-
-## Tiny checklist
+## Tiny checklist ✅
 
 Step 1 — Add the asset directory as a search path
 
-Step 2 — Render `index.md` as `RenderContentKind::Markdown`
+Step 2 — Render as Markdown
 
 Step 3 — Write the output image to disk
 
 ```python
 print("Hello, world!")
-for i in range(10):
-    print(i)
 ```
