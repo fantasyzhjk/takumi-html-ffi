@@ -1,6 +1,6 @@
 #![recursion_limit = "512"]
 
-use std::{path::PathBuf, thread};
+use std::path::PathBuf;
 
 use serde_json::json;
 use takumi_render_uniffi::{
@@ -9,12 +9,6 @@ use takumi_render_uniffi::{
 };
 
 fn main() {
-    let builder = thread::Builder::new().stack_size(16 * 1024 * 1024);
-    let handle = builder.spawn(run).expect("spawn thread");
-    handle.join().expect("join thread");
-}
-
-fn run() {
     let result = try_run();
     if let Err(e) = result {
         eprintln!("error: {e}");

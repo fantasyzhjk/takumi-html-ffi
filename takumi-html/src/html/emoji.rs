@@ -1,14 +1,22 @@
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use takumi::prelude::{Node, Style, StyleDeclarationBlock};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{HtmlError, Result};
+use super::Result;
 
 const ZERO_WIDTH_JOINER: char = '\u{200D}';
 const VARIATION_SELECTOR_16: char = '\u{FE0F}';
 const KEYCAP_MARK: char = '\u{20E3}';
 const EMOJI_IMAGE_STYLE: &str = "display: inline-block; width: 1em; height: 1em; margin: 0 0.05em 0 0.1em; vertical-align: -0.1em;";
+
+static EMOJI_IMAGE_STYLE_PARSED: LazyLock<Style> = LazyLock::new(|| {
+    StyleDeclarationBlock::from_str(EMOJI_IMAGE_STYLE)
+        .expect("emoji image style is a valid CSS declaration block")
+        .into()
+});
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmojiType {
@@ -78,17 +86,11 @@ pub(crate) fn split_text_to_nodes(text: &str, emoji_type: EmojiType) -> Result<O
 }
 
 fn emoji_image_node(segment: &str, emoji_type: EmojiType) -> Result<Node> {
-    Ok(Node::image((emoji_type.image_url(segment), None, None)).with_style(emoji_image_style()?))
+    Ok(Node::image((emoji_type.image_url(segment), None, None)).with_style(emoji_image_style()))
 }
 
-fn emoji_image_style() -> Result<Style> {
-    StyleDeclarationBlock::from_str(EMOJI_IMAGE_STYLE)
-        .map(Into::into)
-        .map_err(|error| HtmlError::InlineStyleParse {
-            tag_name: "img".to_owned(),
-            value: EMOJI_IMAGE_STYLE.to_owned(),
-            reason: error.to_string(),
-        })
+fn emoji_image_style() -> Style {
+    EMOJI_IMAGE_STYLE_PARSED.clone()
 }
 
 fn emoji_icon_code(segment: &str) -> String {

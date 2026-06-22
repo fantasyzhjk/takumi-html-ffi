@@ -1,5 +1,6 @@
 package io.github.zhjk.takumi.render.uniffi
 
+import io.github.zhjk.takumi.render.uniffi.generated.EmojiSet as GeneratedEmojiSet
 import io.github.zhjk.takumi.render.uniffi.generated.ImageFormat as GeneratedImageFormat
 import io.github.zhjk.takumi.render.uniffi.generated.RenderInput as GeneratedRenderInput
 import io.github.zhjk.takumi.render.uniffi.generated.InlineTemplateInput as GeneratedInlineTemplateInput
@@ -29,6 +30,36 @@ enum class ImageFormat {
             GeneratedImageFormat.PNG -> PNG
             GeneratedImageFormat.WEB_P -> WEBP
             GeneratedImageFormat.JPEG -> JPEG
+        }
+    }
+}
+
+enum class EmojiSet {
+    TWEMOJI,
+    BLOBMOJI,
+    NOTO,
+    OPENMOJI,
+    FLUENT,
+    FLUENT_FLAT,
+    ;
+
+    internal fun toGenerated(): GeneratedEmojiSet = when (this) {
+        TWEMOJI -> GeneratedEmojiSet.TWEMOJI
+        BLOBMOJI -> GeneratedEmojiSet.BLOBMOJI
+        NOTO -> GeneratedEmojiSet.NOTO
+        OPENMOJI -> GeneratedEmojiSet.OPENMOJI
+        FLUENT -> GeneratedEmojiSet.FLUENT
+        FLUENT_FLAT -> GeneratedEmojiSet.FLUENT_FLAT
+    }
+
+    companion object {
+        internal fun fromGenerated(value: GeneratedEmojiSet): EmojiSet = when (value) {
+            GeneratedEmojiSet.TWEMOJI -> TWEMOJI
+            GeneratedEmojiSet.BLOBMOJI -> BLOBMOJI
+            GeneratedEmojiSet.NOTO -> NOTO
+            GeneratedEmojiSet.OPENMOJI -> OPENMOJI
+            GeneratedEmojiSet.FLUENT -> FLUENT
+            GeneratedEmojiSet.FLUENT_FLAT -> FLUENT_FLAT
         }
     }
 }
@@ -202,6 +233,7 @@ class RenderRequest @JvmOverloads constructor(
     var quality: Int? = null
     var loadLinkedStylesheets: Boolean? = null
     var normalizeWhitespace: Boolean? = null
+    var emojiType: EmojiSet? = null
 
     internal fun toGenerated(): GeneratedRenderRequest {
         val qualityValue = quality?.also {
@@ -215,6 +247,7 @@ class RenderRequest @JvmOverloads constructor(
             quality = qualityValue,
             loadLinkedStylesheets = loadLinkedStylesheets,
             normalizeWhitespace = normalizeWhitespace,
+            emojiType = emojiType?.toGenerated(),
         )
     }
 }

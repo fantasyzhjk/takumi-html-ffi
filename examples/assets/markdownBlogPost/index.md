@@ -22,4 +22,5 @@ Step 3 — Write the output image to disk
 
 ```python
 print("Hello, world!")
+a = "test"
 ```

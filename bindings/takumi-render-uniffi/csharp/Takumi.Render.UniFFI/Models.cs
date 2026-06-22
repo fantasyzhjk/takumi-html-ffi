@@ -9,6 +9,43 @@ public enum ImageFormat
     Jpeg,
 }
 
+public enum EmojiSet
+{
+    Twemoji,
+    Blobmoji,
+    Noto,
+    Openmoji,
+    Fluent,
+    FluentFlat,
+}
+
+internal static class EmojiSetExtensions
+{
+    internal static Generated.EmojiSet ToGenerated(this EmojiSet emojiSet) =>
+        emojiSet switch
+        {
+            EmojiSet.Twemoji => Generated.EmojiSet.Twemoji,
+            EmojiSet.Blobmoji => Generated.EmojiSet.Blobmoji,
+            EmojiSet.Noto => Generated.EmojiSet.Noto,
+            EmojiSet.Openmoji => Generated.EmojiSet.Openmoji,
+            EmojiSet.Fluent => Generated.EmojiSet.Fluent,
+            EmojiSet.FluentFlat => Generated.EmojiSet.FluentFlat,
+            _ => throw new ArgumentOutOfRangeException(nameof(emojiSet), emojiSet, null),
+        };
+
+    internal static EmojiSet FromGenerated(Generated.EmojiSet emojiSet) =>
+        emojiSet switch
+        {
+            Generated.EmojiSet.Twemoji => EmojiSet.Twemoji,
+            Generated.EmojiSet.Blobmoji => EmojiSet.Blobmoji,
+            Generated.EmojiSet.Noto => EmojiSet.Noto,
+            Generated.EmojiSet.Openmoji => EmojiSet.Openmoji,
+            Generated.EmojiSet.Fluent => EmojiSet.Fluent,
+            Generated.EmojiSet.FluentFlat => EmojiSet.FluentFlat,
+            _ => throw new ArgumentOutOfRangeException(nameof(emojiSet), emojiSet, null),
+        };
+}
+
 public sealed record RenderSize(
     uint? Width = null,
     uint? Height = null,
@@ -157,6 +194,8 @@ public sealed class RenderRequest
 
     public bool? NormalizeWhitespace { get; init; }
 
+    public EmojiSet? EmojiType { get; init; }
+
     internal Generated.RenderRequest ToGenerated() =>
         new(
             Input.ToGenerated(),
@@ -164,7 +203,8 @@ public sealed class RenderRequest
             Format.ToGenerated(),
             Quality,
             LoadLinkedStylesheets,
-            NormalizeWhitespace
+            NormalizeWhitespace,
+            EmojiType?.ToGenerated()
         );
 }
 

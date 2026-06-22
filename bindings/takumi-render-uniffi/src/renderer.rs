@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
+#[cfg(feature = "http")]
 use reqwest::blocking::Client;
 use takumi::prelude::{
     Bitmap, FontResource, Fonts, ImageSource, MeasuredNode, RenderOptions, Viewport,
@@ -31,6 +32,7 @@ pub struct Renderer {
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
     image_cache: Mutex<ImageCache>,
+    #[cfg(feature = "http")]
     http_client: Client,
 }
 
@@ -47,6 +49,7 @@ impl Default for Renderer {
             file_cache: Arc::new(Mutex::new(FileCache::default())),
             font_cache: Mutex::new(FontCache::default()),
             image_cache: Mutex::new(ImageCache::default()),
+            #[cfg(feature = "http")]
             http_client: Client::new(),
         }
     }
@@ -353,14 +356,18 @@ impl Renderer {
         if is_local_cached_asset_reference(raw_url) {
             let image = self.load_cached_image(raw_url, pass)?;
             fetched_resources.insert(Arc::<str>::from(raw_url), image);
-        } else if is_remote_url(raw_url) {
-            let image = self.fetch_remote_image(raw_url, pass)?;
-            fetched_resources.insert(Arc::<str>::from(raw_url), image);
+        } else if cfg!(feature = "http") && is_remote_url(raw_url) {
+            #[cfg(feature = "http")]
+            {
+                let image = self.fetch_remote_image(raw_url, pass)?;
+                fetched_resources.insert(Arc::<str>::from(raw_url), image);
+            }
         }
 
         Ok(())
     }
 
+    #[cfg(feature = "http")]
     fn fetch_remote_image(&self, url: &str, pass: u64) -> Result<ImageSource> {
         let mut cache = self
             .image_cache

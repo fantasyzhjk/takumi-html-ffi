@@ -22,11 +22,6 @@ $font-mono: "JetBrains Mono", "Fira Code", monospace !default;
     padding: $body-padding;
     color: $text-color;
     font-family: $font-sans;
-
-    // Layout logic for Markdown tags (no UA stylesheet in Takumi)
-    & > * {
-      display: block;
-    }
   }
 }
 

@@ -10,5 +10,6 @@ default-members = [
 resolver = "3"
 
 [profile.release]
+opt-level = "s"
 codegen-units = 1
-lto = true
+lto = "thin"

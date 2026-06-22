@@ -3137,7 +3137,7 @@ dependencies = [
 
 [[package]]
 name = "takumi-html"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64",
  "ego-tree",
@@ -3180,7 +3180,7 @@ dependencies = [
 
 [[package]]
 name = "takumi-render-uniffi"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "chrono",
  "comrak",
