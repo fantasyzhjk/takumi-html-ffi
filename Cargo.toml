@@ -2,10 +2,12 @@
 members = [
     "takumi-html",
     "bindings/takumi-render-uniffi",
+    "bindings/takumi-template-uniffi",
 ]
 default-members = [
     "takumi-html",
     "bindings/takumi-render-uniffi",
+    "bindings/takumi-template-uniffi",
 ]
 resolver = "3"
 

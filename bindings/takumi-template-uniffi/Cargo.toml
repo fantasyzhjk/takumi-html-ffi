@@ -1,0 +1,21 @@
+[package]
+name = "takumi-template-uniffi"
+version = "0.2.5"
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+comrak = { version = "0.52", features = ["syntect"] }
+minijinja = { version = "2.20", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+syntect = { version = "5", features = ["html"] }
+thiserror = "2.0"
+uniffi = "0.29.5"
+
+[dev-dependencies]
+tempfile = "3.27"

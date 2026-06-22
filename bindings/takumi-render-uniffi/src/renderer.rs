@@ -17,20 +17,14 @@ use takumi_html::{
 
 use crate::{
     api::{MeasuredLayout, RenderInput, RenderRequest, RenderSize, RenderedImage},
-    cache::{
-        FileCache, FileSignature, FontCache, ImageCache, absolute_path, hash_bytes,
-        normalize_existing_path,
-    },
+    cache::{FileSignature, ImageCache, absolute_path, normalize_existing_path},
     error::{RendererError, Result, state_lock_error},
-    template::normalize_search_path,
 };
 
 #[derive(uniffi::Object)]
 pub struct Renderer {
     fonts: Mutex<Fonts>,
     search_paths: RwLock<Vec<PathBuf>>,
-    file_cache: Arc<Mutex<FileCache>>,
-    font_cache: Mutex<FontCache>,
     image_cache: Mutex<ImageCache>,
     #[cfg(feature = "http")]
     http_client: Client,
@@ -46,8 +40,6 @@ impl Default for Renderer {
         Self {
             fonts: Mutex::new(Fonts::default()),
             search_paths: RwLock::new(Vec::new()),
-            file_cache: Arc::new(Mutex::new(FileCache::default())),
-            font_cache: Mutex::new(FontCache::default()),
             image_cache: Mutex::new(ImageCache::default()),
             #[cfg(feature = "http")]
             http_client: Client::new(),
@@ -91,14 +83,6 @@ impl Renderer {
 
     pub fn clear_caches(&self) -> Result<()> {
         *self.fonts.lock().map_err(|_| state_lock_error("fonts"))? = Fonts::default();
-        self.file_cache
-            .lock()
-            .map_err(|_| state_lock_error("file_cache"))?
-            .clear();
-        self.font_cache
-            .lock()
-            .map_err(|_| state_lock_error("font_cache"))?
-            .clear();
         self.image_cache
             .lock()
             .map_err(|_| state_lock_error("image_cache"))?
@@ -134,14 +118,6 @@ impl Renderer {
 }
 
 impl Renderer {
-    #[doc(hidden)]
-    pub fn debug_font_cache_entries(&self) -> usize {
-        self.font_cache
-            .lock()
-            .map(|cache| cache.entry_count())
-            .unwrap_or_default()
-    }
-
     #[doc(hidden)]
     pub fn debug_image_cache_entries(&self) -> usize {
         self.image_cache
@@ -311,13 +287,7 @@ impl Renderer {
                     )));
                 }
 
-                let markup = {
-                    let mut file_cache = self
-                        .file_cache
-                        .lock()
-                        .map_err(|_| state_lock_error("file_cache"))?;
-                    file_cache.read_string(&normalized)?
-                };
+                let markup = fs::read_to_string(&normalized)?;
 
                 if let Some(parent) = normalized.parent() {
                     let parent = parent.to_path_buf();
@@ -437,13 +407,7 @@ impl Renderer {
     }
 
     fn decode_image_file(&self, normalized: &Path) -> Result<ImageSource> {
-        let bytes = {
-            let mut file_cache = self
-                .file_cache
-                .lock()
-                .map_err(|_| state_lock_error("file_cache"))?;
-            file_cache.read_bytes(normalized)?
-        };
+        let bytes = fs::read(normalized)?;
         ImageSource::from_bytes(&bytes)
             .map_err(|error| RendererError::Render(error.to_string()))
     }
@@ -487,74 +451,19 @@ impl Renderer {
             )));
         }
 
-        {
-            let font_cache = self
-                .font_cache
-                .lock()
-                .map_err(|_| state_lock_error("font_cache"))?;
-            if font_cache.contains_path(&normalized) {
-                return Ok(());
-            }
-        }
-
-        let bytes = {
-            let mut file_cache = self
-                .file_cache
-                .lock()
-                .map_err(|_| state_lock_error("file_cache"))?;
-            file_cache.read_bytes(&normalized)?
-        };
-        let hash = hash_bytes(bytes.as_ref());
-
-        {
-            let mut font_cache = self
-                .font_cache
-                .lock()
-                .map_err(|_| state_lock_error("font_cache"))?;
-            if font_cache.contains_path(&normalized) {
-                return Ok(());
-            }
-            if font_cache.contains_hash(hash) {
-                font_cache.remember_path(normalized);
-                return Ok(());
-            }
-        }
-
+        let bytes = fs::read(&normalized)?;
         self.fonts
             .lock()
             .map_err(|_| state_lock_error("fonts"))?
-            .register(FontResource::new(&*bytes))?;
-
-        let mut font_cache = self
-            .font_cache
-            .lock()
-            .map_err(|_| state_lock_error("font_cache"))?;
-        font_cache.remember_hash(hash);
-        font_cache.remember_path(normalized);
+            .register(FontResource::new(&bytes))?;
         Ok(())
     }
 
     fn add_font_bytes_impl(&self, bytes: Vec<u8>) -> Result<()> {
-        let hash = hash_bytes(&bytes);
-        {
-            let font_cache = self
-                .font_cache
-                .lock()
-                .map_err(|_| state_lock_error("font_cache"))?;
-            if font_cache.contains_hash(hash) {
-                return Ok(());
-            }
-        }
-
         self.fonts
             .lock()
             .map_err(|_| state_lock_error("fonts"))?
             .register(FontResource::new(bytes.as_slice()))?;
-
-        self.font_cache
-            .lock()
-            .map_err(|_| state_lock_error("font_cache"))?
-            .remember_hash(hash);
         Ok(())
     }
 
@@ -696,6 +605,25 @@ fn dedup_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
     deduped
 }
 
+fn normalize_search_path(path: &str) -> Result<PathBuf> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(RendererError::invalid_request(
+            "search path cannot be empty",
+        ));
+    }
+
+    let normalized = normalize_existing_path(Path::new(trimmed))?;
+    if !normalized.is_dir() {
+        return Err(RendererError::invalid_request(format!(
+            "search path `{}` is not a directory",
+            normalized.display()
+        )));
+    }
+
+    Ok(normalized)
+}
+
 fn can_retry_with_next_base(error: &HtmlError) -> bool {
     matches!(
         error,
@@ -788,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn add_font_file_is_deduplicated_by_cache() {
+    fn add_font_file_loads_twice_without_error() {
         let renderer = Renderer::default();
         let font_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples/fonts/Rubik-Regular.ttf");
@@ -799,12 +727,10 @@ mod tests {
         renderer
             .add_font_file_impl(&font_path)
             .expect("load font the second time");
-
-        assert_eq!(renderer.debug_font_cache_entries(), 1);
     }
 
     #[test]
-    fn add_font_directory_scans_recursively_and_deduplicates_by_hash() {
+    fn add_font_directory_scans_recursively() {
         let temp = tempdir().expect("tempdir");
         let nested = temp.path().join("nested");
         fs::create_dir_all(&nested).expect("create nested dir");
@@ -818,8 +744,6 @@ mod tests {
         renderer
             .add_font_directory(temp.path().to_string_lossy().into_owned())
             .expect("load font directory");
-
-        assert_eq!(renderer.debug_font_cache_entries(), 1);
     }
 
     #[test]

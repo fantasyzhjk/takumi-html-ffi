@@ -1,6 +1,6 @@
-using Generated = Takumi.Render.UniFFI.Generated;
+using Generated = Takumi.Template.UniFFI.Generated;
 
-namespace Takumi.Render.UniFFI;
+namespace Takumi.Template.UniFFI;
 
 public sealed class TemplateEngine : IDisposable
 {
@@ -43,7 +43,7 @@ public sealed class TemplateEngine : IDisposable
             action();
         }
         catch (Exception exception)
-            when (exception is Generated.RendererException or RendererException)
+            when (exception is Generated.TemplateException or TemplateException)
         {
             throw TranslateException(exception);
         }
@@ -56,17 +56,17 @@ public sealed class TemplateEngine : IDisposable
             return action();
         }
         catch (Exception exception)
-            when (exception is Generated.RendererException or RendererException)
+            when (exception is Generated.TemplateException or TemplateException)
         {
             throw TranslateException(exception);
         }
     }
 
-    private static RendererException TranslateException(Exception exception) =>
+    private static TemplateException TranslateException(Exception exception) =>
         exception switch
         {
-            RendererException rendererException => rendererException,
-            Generated.RendererException generated => RendererException.FromGenerated(generated),
-            _ => new RendererException(RendererErrorKind.Unknown, exception.Message, exception),
+            TemplateException templateException => templateException,
+            Generated.TemplateException generated => TemplateException.FromGenerated(generated),
+            _ => new TemplateException(TemplateErrorKind.Unknown, exception.Message, exception),
         };
 }

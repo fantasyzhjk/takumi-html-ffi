@@ -3181,17 +3181,28 @@ dependencies = [
 name = "takumi-render-uniffi"
 version = "0.2.5"
 dependencies = [
- "chrono",
- "comrak",
  "grass",
  "image",
- "minijinja",
  "reqwest",
+ "serde_json",
+ "takumi",
+ "takumi-html",
+ "takumi-template-uniffi",
+ "tempfile",
+ "thiserror",
+ "uniffi",
+]
+
+[[package]]
+name = "takumi-template-uniffi"
+version = "0.2.5"
+dependencies = [
+ "chrono",
+ "comrak",
+ "minijinja",
  "serde",
  "serde_json",
  "syntect",
- "takumi",
- "takumi-html",
  "tempfile",
  "thiserror",
  "uniffi",

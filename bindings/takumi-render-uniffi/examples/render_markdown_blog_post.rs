@@ -3,8 +3,10 @@
 use std::path::PathBuf;
 
 use takumi_render_uniffi::{
-    EmojiSet, RenderInput, ImageFormat, RenderRequest, RenderSize, TemplateRequest, Renderer,
-    TemplateContentKind, TemplateEngine, TemplateInput,
+    EmojiSet, RenderInput, ImageFormat, RenderRequest, RenderSize, Renderer,
+};
+use takumi_template_uniffi::{
+    TemplateContentKind, TemplateEngine, TemplateInput, TemplateRequest,
 };
 
 fn main() {

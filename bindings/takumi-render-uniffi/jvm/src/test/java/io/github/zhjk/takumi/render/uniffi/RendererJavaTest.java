@@ -11,27 +11,21 @@ import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 final class RendererJavaTest {
-    private static final String INLINE_TEMPLATE = """
+    private static final String INLINE_HTML = """
         <html>
-          <body style=\"margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0b132b;color:#f9f7f3;font-family:'Rubik';font-size:28px;\">
-            {{ name }}
+          <body style="margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0b132b;color:#f9f7f3;font-family:'Rubik';font-size:28px;">
+            Takumi
           </body>
         </html>
         """;
 
     @Test
     void render_fromJava_returnsPngBytes() {
-        try (var templateEngine = new TemplateEngine(); var renderer = new Renderer()) {
+        try (var renderer = new Renderer()) {
             renderer.addFontDirectory(fontPath().getParent().toString());
 
-            var html = templateEngine.render(
-                new TemplateRequest(
-                    TemplateInput.inline(INLINE_TEMPLATE),
-                    "{\"name\":\"Takumi\"}",
-                    TemplateContentKind.JINJA_HTML,
-                    null));
             var request = new RenderRequest(
-                RenderInput.inline(html),
+                RenderInput.inline(INLINE_HTML),
                 new RenderSize(320, 180),
                 ImageFormat.PNG);
             var image = renderer.render(request);
@@ -49,31 +43,25 @@ final class RendererJavaTest {
 
     @Test
     void fileTemplate_withSearchPathsAndLocalAssets_renders() throws IOException {
-        var tempDir = Files.createTempDirectory("takumi-java-template-");
+        var tempDir = Files.createTempDirectory("takumi-java-render-");
         try {
             Files.write(tempDir.resolve("pixel.png"), tinyPngBytes());
             Files.writeString(
-                tempDir.resolve("index.jinja"),
+                tempDir.resolve("index.html"),
                 """
                 <html>
                   <body style="margin:0;width:32px;height:32px;">
                     <img src="pixel.png" width="1" height="1" />
-                    <div style="font-family:'Rubik';">{{ name }}</div>
+                    <div style="font-family:'Rubik';">Takumi</div>
                   </body>
                 </html>
                 """);
 
-            try (var templateEngine = new TemplateEngine(); var renderer = new Renderer()) {
-                templateEngine.addSearchPath(tempDir.toString());
+            try (var renderer = new Renderer()) {
                 renderer.addSearchPath(tempDir.toString());
                 renderer.addFontDirectory(fontPath().getParent().toString());
 
-                var html = templateEngine.render(
-                    new TemplateRequest(
-                        TemplateInput.file("index.jinja"),
-                        "{\"name\":\"Takumi\"}",
-                        TemplateContentKind.JINJA_HTML,
-                        null));
+                var html = Files.readString(tempDir.resolve("index.html"));
                 var image = renderer.render(
                     new RenderRequest(
                         RenderInput.inline(html),
@@ -101,17 +89,11 @@ final class RendererJavaTest {
     void renderToFile_fromJava_writesOutput() throws IOException {
         var outputPath = Files.createTempFile("takumi-render-java-", ".png");
 
-        try (var templateEngine = new TemplateEngine(); var renderer = new Renderer()) {
+        try (var renderer = new Renderer()) {
             renderer.addFontDirectory(fontPath().getParent().toString());
 
-            var html = templateEngine.render(
-                new TemplateRequest(
-                    TemplateInput.inline(INLINE_TEMPLATE),
-                    "{\"name\":\"Takumi\"}",
-                    TemplateContentKind.JINJA_HTML,
-                    null));
             var request = new RenderRequest(
-                RenderInput.inline(html),
+                RenderInput.inline(INLINE_HTML),
                 new RenderSize(240, 120),
                 ImageFormat.PNG);
             var image = renderer.renderToFile(request, outputPath.toString());

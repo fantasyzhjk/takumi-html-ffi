@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj" />
+    <ProjectReference Include="../../../takumi-template-uniffi/csharp/Takumi.Template.UniFFI/Takumi.Template.UniFFI.csproj" />
     <None Include="../../../../examples/fonts/Rubik-Regular.ttf" Link="Fixtures/Rubik-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

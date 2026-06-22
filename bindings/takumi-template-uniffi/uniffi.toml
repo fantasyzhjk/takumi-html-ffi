@@ -1,0 +1,8 @@
+[bindings.csharp]
+namespace = "Takumi.Template.UniFFI.Generated"
+cdylib_name = "takumi_template_uniffi"
+access_modifier = "internal"
+
+[bindings.kotlin]
+package_name = "io.github.zhjk.takumi.template.uniffi.generated"
+cdylib_name = "takumi_template_uniffi"

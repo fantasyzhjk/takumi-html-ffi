@@ -1,13 +1,13 @@
-package io.github.zhjk.takumi.render.uniffi
+package io.github.zhjk.takumi.template.uniffi
 
-import io.github.zhjk.takumi.render.uniffi.generated.TakumiRenderUniffiNativeLoader
-import io.github.zhjk.takumi.render.uniffi.generated.TemplateEngine as GeneratedTemplateEngine
+import io.github.zhjk.takumi.template.uniffi.generated.TakumiTemplateUniffiNativeLoader
+import io.github.zhjk.takumi.template.uniffi.generated.TemplateEngine as GeneratedTemplateEngine
 
 class TemplateEngine : AutoCloseable {
     private val inner: GeneratedTemplateEngine
 
     init {
-        TakumiRenderUniffiNativeLoader.ensureLoaded()
+        TakumiTemplateUniffiNativeLoader.ensureLoaded()
         inner = GeneratedTemplateEngine()
     }
 
@@ -45,8 +45,8 @@ class TemplateEngine : AutoCloseable {
             throw translateThrowable(throwable)
         }
 
-    private fun translateThrowable(throwable: Throwable): RendererException = when (throwable) {
-        is RendererException -> throwable
-        else -> RendererException.fromGenerated(throwable)
+    private fun translateThrowable(throwable: Throwable): TemplateException = when (throwable) {
+        is TemplateException -> throwable
+        else -> TemplateException.fromGenerated(throwable)
     }
 }

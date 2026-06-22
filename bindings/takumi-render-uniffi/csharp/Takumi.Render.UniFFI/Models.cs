@@ -64,89 +64,6 @@ public sealed record MeasuredLayout(uint Width, uint Height)
         new(layout.width, layout.height);
 }
 
-public enum TemplateContentKind
-{
-    Markdown,
-    JinjaHtml,
-    JinjaMarkdown,
-}
-
-public sealed record InlineTemplateInput(string Source, string? LogicalName = null)
-{
-    internal Generated.InlineTemplateInput ToGenerated() => new(Source, LogicalName);
-}
-
-public enum TemplateInputKind
-{
-    Inline,
-    File,
-    Registered,
-}
-
-public sealed class TemplateInput
-{
-    public required TemplateInputKind Kind { get; init; }
-
-    public InlineTemplateInput? InlineValue { get; init; }
-
-    public string? Value { get; init; }
-
-    public static TemplateInput Inline(InlineTemplateInput input) =>
-        new() { Kind = TemplateInputKind.Inline, InlineValue = input, };
-
-    public static TemplateInput Inline(string source, string? logicalName = null) =>
-        Inline(new InlineTemplateInput(source, logicalName));
-
-    public static TemplateInput File(string path) =>
-        new() { Kind = TemplateInputKind.File, Value = path, };
-
-    public static TemplateInput Registered(string name) =>
-        new() { Kind = TemplateInputKind.Registered, Value = name, };
-
-    internal Generated.TemplateInput ToGenerated() =>
-        Kind switch
-        {
-            TemplateInputKind.Inline
-                => new Generated.TemplateInput.Inline(
-                    (
-                        InlineValue
-                        ?? throw new InvalidOperationException(
-                            "InlineValue is required for inline template input"
-                        )
-                    ).ToGenerated()
-                ),
-            TemplateInputKind.File
-                => new Generated.TemplateInput.File(
-                    Value
-                        ?? throw new InvalidOperationException(
-                            "Value is required for file template input"
-                        )
-                ),
-            TemplateInputKind.Registered
-                => new Generated.TemplateInput.Registered(
-                    Value
-                        ?? throw new InvalidOperationException(
-                            "Value is required for registered template input"
-                        )
-                ),
-            _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null),
-        };
-}
-
-public sealed class TemplateRequest
-{
-    public required TemplateInput Input { get; init; }
-
-    public string? ContextJson { get; init; }
-
-    public required TemplateContentKind ContentKind { get; init; }
-
-    public string? SyntaxTheme { get; init; }
-
-    internal Generated.TemplateRequest ToGenerated() =>
-        new(Input.ToGenerated(), ContextJson, ContentKind.ToGenerated(), SyntaxTheme);
-}
-
 public enum HtmlInputKind
 {
     Inline,
@@ -229,9 +146,6 @@ public sealed record RenderedImage(
 public enum RendererErrorKind
 {
     InvalidRequest,
-    TemplateNotFound,
-    Json,
-    Template,
     Html,
     Font,
     Render,
@@ -263,16 +177,6 @@ public sealed class RendererException : Exception
                     generated.Message,
                     generated
                 ),
-            Generated.RendererException.TemplateNotFound generated
-                => new RendererException(
-                    RendererErrorKind.TemplateNotFound,
-                    generated.Message,
-                    generated
-                ),
-            Generated.RendererException.Json generated
-                => new RendererException(RendererErrorKind.Json, generated.Message, generated),
-            Generated.RendererException.Template generated
-                => new RendererException(RendererErrorKind.Template, generated.Message, generated),
             Generated.RendererException.Html generated
                 => new RendererException(RendererErrorKind.Html, generated.Message, generated),
             Generated.RendererException.Font generated
@@ -305,28 +209,5 @@ internal static class ImageFormatExtensions
             Generated.ImageFormat.WebP => ImageFormat.WebP,
             Generated.ImageFormat.Jpeg => ImageFormat.Jpeg,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
-        };
-}
-
-internal static class TemplateContentKindExtensions
-{
-    internal static Generated.TemplateContentKind ToGenerated(
-        this TemplateContentKind contentKind
-    ) =>
-        contentKind switch
-        {
-            TemplateContentKind.Markdown => Generated.TemplateContentKind.Markdown,
-            TemplateContentKind.JinjaHtml => Generated.TemplateContentKind.JinjaHtml,
-            TemplateContentKind.JinjaMarkdown => Generated.TemplateContentKind.JinjaMarkdown,
-            _ => throw new ArgumentOutOfRangeException(nameof(contentKind), contentKind, null),
-        };
-
-    internal static TemplateContentKind FromGenerated(Generated.TemplateContentKind contentKind) =>
-        contentKind switch
-        {
-            Generated.TemplateContentKind.Markdown => TemplateContentKind.Markdown,
-            Generated.TemplateContentKind.JinjaHtml => TemplateContentKind.JinjaHtml,
-            Generated.TemplateContentKind.JinjaMarkdown => TemplateContentKind.JinjaMarkdown,
-            _ => throw new ArgumentOutOfRangeException(nameof(contentKind), contentKind, null),
         };
 }

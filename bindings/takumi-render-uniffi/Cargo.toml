@@ -14,12 +14,6 @@ http = ["reqwest"]
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg", "rayon"] }
-comrak = { version = "0.52", features = ["syntect"] }
-minijinja = { version = "2.20", features = ["json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = "0.4"
-syntect = { version = "5", features = ["html"] }
 
 takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
 takumi-html = { path = "../../takumi-html" }
@@ -29,4 +23,6 @@ thiserror = "2.0"
 uniffi = "0.29.5"
 
 [dev-dependencies]
+serde_json = "1"
+takumi-template-uniffi = { path = "../takumi-template-uniffi" }
 tempfile = "3.27"

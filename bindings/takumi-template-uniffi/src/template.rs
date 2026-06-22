@@ -2,7 +2,8 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
+    io
 };
 
 use minijinja::Value as JinjaValue;
@@ -11,16 +12,31 @@ use serde_json::Value;
 
 use crate::{
     api::{InlineTemplateInput, TemplateRequest, TemplateContentKind, TemplateInput},
-    cache::{FileCache, normalize_existing_path},
-    error::{RendererError, Result, state_lock_error},
+    error::{TemplateError, Result, state_lock_error},
     markdown::{self, FormattingConfig, render_markdown_to_html},
 };
+
+pub(crate) fn normalize_existing_path(path: &Path) -> io::Result<PathBuf> {
+    if path.exists() {
+        path.canonicalize()
+    } else {
+        absolute_path(path)
+    }
+}
+
+pub(crate) fn absolute_path(path: &Path) -> io::Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
 
 #[derive(uniffi::Object)]
 pub struct TemplateEngine {
     search_paths: RwLock<Vec<PathBuf>>,
     registered_templates: RwLock<HashMap<String, String>>,
-    file_cache: Arc<Mutex<FileCache>>,
 }
 
 impl Default for TemplateEngine {
@@ -28,7 +44,6 @@ impl Default for TemplateEngine {
         Self {
             search_paths: RwLock::new(Vec::new()),
             registered_templates: RwLock::new(HashMap::new()),
-            file_cache: Arc::new(Mutex::new(FileCache::default())),
         }
     }
 }
@@ -55,7 +70,7 @@ impl TemplateEngine {
     pub fn add_template(&self, name: String, source: String) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(RendererError::invalid_request(
+            return Err(TemplateError::invalid_request(
                 "template name cannot be empty",
             ));
         }
@@ -114,7 +129,6 @@ impl TemplateEngine {
         Ok(TemplateRepository {
             search_paths,
             registered_templates,
-            file_cache: Arc::clone(&self.file_cache),
         })
     }
 }
@@ -123,7 +137,6 @@ impl TemplateEngine {
 pub(crate) struct TemplateRepository {
     pub search_paths: Vec<PathBuf>,
     pub registered_templates: HashMap<String, String>,
-    pub file_cache: Arc<Mutex<FileCache>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,14 +169,14 @@ impl ResolvedSource {
 pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(RendererError::invalid_request(
+        return Err(TemplateError::invalid_request(
             "search path cannot be empty",
         ));
     }
 
     let normalized = normalize_existing_path(Path::new(trimmed))?;
     if !normalized.is_dir() {
-        return Err(RendererError::invalid_request(format!(
+        return Err(TemplateError::invalid_request(format!(
             "search path `{}` is not a directory",
             normalized.display()
         )));
@@ -225,19 +238,19 @@ fn validate_template_input(input: &TemplateInput) -> Result<()> {
                 .as_deref()
                 .is_some_and(|name| name.trim().is_empty())
             {
-                return Err(RendererError::invalid_request(
+                return Err(TemplateError::invalid_request(
                     "input.logical_name cannot be empty when provided",
                 ));
             }
         }
         TemplateInput::File(path) => {
             if path.trim().is_empty() {
-                return Err(RendererError::invalid_request("input.file cannot be empty"));
+                return Err(TemplateError::invalid_request("input.file cannot be empty"));
             }
         }
         TemplateInput::Registered(name) => {
             if name.trim().is_empty() {
-                return Err(RendererError::invalid_request(
+                return Err(TemplateError::invalid_request(
                     "input.registered cannot be empty",
                 ));
             }
@@ -274,19 +287,13 @@ fn resolve_inline_source(
 fn resolve_file_source(
     reference: &str,
     content_kind: TemplateContentKind,
-    repository: &TemplateRepository,
+    _repository: &TemplateRepository,
     search_paths: Vec<PathBuf>,
     formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
     let path = resolve_existing_template_path(reference.trim(), &search_paths)?
-        .ok_or_else(|| RendererError::template_not_found(reference))?;
-    let source_text = {
-        let mut cache = repository
-            .file_cache
-            .lock()
-            .map_err(|_| RendererError::Render("template cache lock poisoned".to_string()))?;
-        cache.read_string(&path)?
-    };
+        .ok_or_else(|| TemplateError::template_not_found(reference))?;
+    let source_text = std::fs::read_to_string(&path)?;
 
     Ok(ResolvedSource {
         content_kind,
@@ -310,7 +317,7 @@ fn resolve_registered_source(
         .registered_templates
         .get(name)
         .cloned()
-        .ok_or_else(|| RendererError::template_not_found(name))?;
+        .ok_or_else(|| TemplateError::template_not_found(name))?;
 
     Ok(ResolvedSource {
         content_kind,
@@ -334,7 +341,6 @@ fn build_environment(
             .collect::<HashSet<String>>(),
     );
     let search_paths = resolved.search_paths.clone();
-    let file_cache = Arc::clone(&repository.file_cache);
     let escape_html = matches!(resolved.content_kind, TemplateContentKind::JinjaHtml);
 
     let mut env = Environment::new();
@@ -393,14 +399,13 @@ fn build_environment(
         highlight_filter(code, lang, &highlight_formatting)
     });
 
-    env.set_loader(move |name| load_template_source(name, &search_paths, &file_cache));
+    env.set_loader(move |name| load_template_source(name, &search_paths));
     Ok(env)
 }
 
 fn load_template_source(
     name: &str,
     search_paths: &[PathBuf],
-    file_cache: &Arc<Mutex<FileCache>>,
 ) -> std::result::Result<Option<String>, Error> {
     let path = match resolve_existing_template_path(name, search_paths) {
         Ok(Some(path)) => path,
@@ -408,11 +413,7 @@ fn load_template_source(
         Err(error) => return Err(loader_error(name, error)),
     };
 
-    let mut cache = file_cache
-        .lock()
-        .map_err(|_| loader_error(name, "template cache lock poisoned"))?;
-    cache
-        .read_string(&path)
+    std::fs::read_to_string(&path)
         .map(Some)
         .map_err(|error| loader_error(name, error))
 }
@@ -548,7 +549,7 @@ fn highlight_filter(
     Ok(JinjaValue::from_safe_string(html))
 }
 
-fn template_filter_error(error: RendererError) -> Error {
+fn template_filter_error(error: TemplateError) -> Error {
     Error::new(ErrorKind::InvalidOperation, error.to_string())
 }
 
@@ -557,13 +558,11 @@ mod tests {
     use std::{
         collections::HashMap,
         fs,
-        sync::{Arc, Mutex},
     };
 
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{api::TemplateRequest, cache::FileCache};
 
     fn render_inline(
         content_kind: TemplateContentKind,
@@ -736,7 +735,6 @@ mod tests {
                 "cards/profile.jinja".to_string(),
                 "<div>{{ name }}</div>".to_string(),
             )]),
-            file_cache: Arc::new(Mutex::new(FileCache::default())),
         };
 
         let request = TemplateRequest {

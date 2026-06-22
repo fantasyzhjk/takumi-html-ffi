@@ -10,12 +10,6 @@ pub type Result<T> = std::result::Result<T, RendererError>;
 pub enum RendererError {
     #[error("invalid render request: {0}")]
     InvalidRequest(String),
-    #[error("template not found: {0}")]
-    TemplateNotFound(String),
-    #[error("failed to parse JSON context: {0}")]
-    Json(String),
-    #[error("failed to render template: {0}")]
-    Template(String),
     #[error("failed to convert HTML: {0}")]
     Html(String),
     #[error("failed to load font: {0}")]
@@ -33,10 +27,6 @@ impl RendererError {
         Self::InvalidRequest(message.into())
     }
 
-    pub(crate) fn template_not_found(message: impl Into<String>) -> Self {
-        Self::TemplateNotFound(message.into())
-    }
-
     pub(crate) fn encode(message: impl Into<String>) -> Self {
         Self::Encode(message.into())
     }
@@ -45,18 +35,6 @@ impl RendererError {
 impl From<io::Error> for RendererError {
     fn from(value: io::Error) -> Self {
         Self::Io(value.to_string())
-    }
-}
-
-impl From<serde_json::Error> for RendererError {
-    fn from(value: serde_json::Error) -> Self {
-        Self::Json(value.to_string())
-    }
-}
-
-impl From<minijinja::Error> for RendererError {
-    fn from(value: minijinja::Error) -> Self {
-        Self::Template(value.to_string())
     }
 }
 
@@ -80,7 +58,7 @@ impl From<FontError> for RendererError {
 
 impl From<FromUtf8Error> for RendererError {
     fn from(value: FromUtf8Error) -> Self {
-        Self::Template(value.to_string())
+        Self::Render(value.to_string())
     }
 }
 

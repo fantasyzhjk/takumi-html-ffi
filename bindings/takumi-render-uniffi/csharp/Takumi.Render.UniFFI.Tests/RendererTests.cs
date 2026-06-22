@@ -1,3 +1,4 @@
+using Takumi.Template.UniFFI;
 using Xunit;
 
 namespace Takumi.Render.UniFFI.Tests;

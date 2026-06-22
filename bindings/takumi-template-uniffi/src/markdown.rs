@@ -13,7 +13,7 @@ use syntect::{
     util::LinesWithEndings,
 };
 
-use crate::error::{RendererError, Result};
+use crate::error::{TemplateError, Result};
 
 pub(crate) const DEFAULT_SYNTAX_THEME: &str = "base16-ocean.dark";
 
@@ -31,7 +31,7 @@ impl FormattingConfig {
             Some(theme) => {
                 let trimmed = theme.trim();
                 if trimmed.is_empty() {
-                    return Err(RendererError::invalid_request(
+                    return Err(TemplateError::invalid_request(
                         "request.syntax_theme cannot be empty",
                     ));
                 }
@@ -41,7 +41,7 @@ impl FormattingConfig {
         };
 
         if !THEME_SET.themes.contains_key(&syntax_theme) {
-            return Err(RendererError::invalid_request(format!(
+            return Err(TemplateError::invalid_request(format!(
                 "request.syntax_theme `{syntax_theme}` is not a supported built-in syntect theme (supported: {})",
                 supported_theme_names().join(", "),
             )));
@@ -90,9 +90,9 @@ pub(crate) fn highlight_code(
     for line in LinesWithEndings::from(code) {
         let ranges = highlighter
             .highlight_line(line, &SYNTAX_SET)
-            .map_err(|error| RendererError::Template(error.to_string()))?;
+            .map_err(|error| TemplateError::Template(error.to_string()))?;
         let highlighted = styled_line_to_highlighted_html(&ranges, IncludeBackground::No)
-            .map_err(|error| RendererError::Template(error.to_string()))?;
+            .map_err(|error| TemplateError::Template(error.to_string()))?;
         html.push_str(&highlighted);
     }
     html.push_str("</code></pre>");
