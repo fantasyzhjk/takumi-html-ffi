@@ -1,4 +1,4 @@
-name: Build and Package
+name: Build Template UniFFI
 
 on:
   push:
@@ -16,27 +16,27 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact-name: linux-x64
-            lib-name: libtakumi_render_uniffi.so
+            lib-name: libtakumi_template_uniffi.so
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact-name: linux-arm64
-            lib-name: libtakumi_render_uniffi.so
+            lib-name: libtakumi_template_uniffi.so
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact-name: win-x64
-            lib-name: takumi_render_uniffi.dll
+            lib-name: takumi_template_uniffi.dll
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact-name: win-arm64
-            lib-name: takumi_render_uniffi.dll
+            lib-name: takumi_template_uniffi.dll
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact-name: osx-x64
-            lib-name: libtakumi_render_uniffi.dylib
+            lib-name: libtakumi_template_uniffi.dylib
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact-name: osx-arm64
-            lib-name: libtakumi_render_uniffi.dylib
+            lib-name: libtakumi_template_uniffi.dylib
 
     steps:
       - uses: actions/checkout@v4
@@ -58,14 +58,14 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build
-        run: cargo build -p takumi-render-uniffi --release --target ${{ matrix.target }}
+        run: cargo build -p takumi-template-uniffi --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.artifact-name }}
+          name: template-native-${{ matrix.artifact-name }}
           path: target/${{ matrix.target }}/release/${{ matrix.lib-name }}
 
   package:
@@ -104,7 +104,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: native-libs
-          pattern: native-*
+          pattern: template-native-*
           merge-multiple: false
 
       - name: Organize artifacts for Python script
@@ -121,35 +121,35 @@ jobs:
             "osx-arm64"  = "aarch64-apple-darwin"
           }
 
-          Copy-Item "native-libs/native-win-x64/takumi_render_uniffi.dll" "target/release/"
+          Copy-Item "native-libs/template-native-win-x64/takumi_template_uniffi.dll" "target/release/"
 
           foreach ($art in $mapping.Keys) {
             $triple = $mapping[$art]
             New-Item -ItemType Directory -Force -Path "target/$triple/release"
-            Copy-Item "native-libs/native-$art/*" "target/$triple/release/"
+            Copy-Item "native-libs/template-native-$art/*" "target/$triple/release/"
           }
 
       - name: Build JVM Library
         run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
-          bindings/takumi-render-uniffi/jvm/gradlew.bat -p bindings/takumi-render-uniffi/jvm jar
+          python3 bindings/takumi-template-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-template-uniffi/jvm
+          bindings/takumi-render-uniffi/jvm/gradlew.bat -p bindings/takumi-template-uniffi/jvm jar
 
       - name: Build C# Library
         run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI
-          dotnet pack bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj -c Release
+          python3 bindings/takumi-template-uniffi/scripts/prepare_packaged_bindings.py --language csharp --project-dir bindings/takumi-template-uniffi/csharp/Takumi.Template.UniFFI
+          dotnet pack bindings/takumi-template-uniffi/csharp/Takumi.Template.UniFFI/Takumi.Template.UniFFI.csproj -c Release
 
       - name: Push to NuGet
         shell: pwsh
         run: |
-          $nupkg = Get-ChildItem -Path "bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release" -Filter "*.nupkg" | Select-Object -First 1
+          $nupkg = Get-ChildItem -Path "bindings/takumi-template-uniffi/csharp/Takumi.Template.UniFFI/bin/Release" -Filter "*.nupkg" | Select-Object -First 1
           Write-Host "Found: $($nupkg.FullName)"
           dotnet nuget push $nupkg.FullName --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Upload Packaged Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: packaged-bindings
+          name: template-packaged-bindings
           path: |
-            bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.nupkg
-            bindings/takumi-render-uniffi/jvm/build/libs/*.jar
+            bindings/takumi-template-uniffi/csharp/Takumi.Template.UniFFI/bin/Release/**/*.nupkg
+            bindings/takumi-template-uniffi/jvm/build/libs/*.jar

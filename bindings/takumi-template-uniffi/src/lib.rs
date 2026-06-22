@@ -1,5 +1,4 @@
 mod api;
-mod cache;
 mod error;
 mod markdown;
 mod template;

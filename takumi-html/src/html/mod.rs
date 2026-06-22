@@ -120,11 +120,10 @@ impl FromHtmlResult {
 }
 
 fn collect_image_src_urls<'a>(node: &'a Node, urls: &mut Vec<&'a str>) {
-    if let NodeKind::Image(image) = &node.kind {
-        if let ImageSourceInput::Url(src) = &image.src {
+    if let NodeKind::Image(image) = &node.kind
+        && let ImageSourceInput::Url(src) = &image.src {
             urls.push(src.as_ref());
         }
-    }
     if let NodeKind::Container { children } = &node.kind {
         for child in children {
             collect_image_src_urls(child, urls);
@@ -150,7 +149,7 @@ fn css_resource_urls(stylesheet: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-fn parse_css_url_token<'a>(source: &'a str, start: usize) -> Option<(&'a str, usize)> {
+fn parse_css_url_token(source: &str, start: usize) -> Option<(&str, usize)> {
     let bytes = source.as_bytes();
     if bytes.get(start..start + 3)?.eq_ignore_ascii_case(b"url") {
         let mut cursor = start + 3;
