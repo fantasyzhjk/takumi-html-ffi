@@ -8,7 +8,8 @@ license = "Apache-2.0"
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = []
+default = ["scss"]
+scss = ["grass"]
 http = ["reqwest"]
 
 [dependencies]
@@ -22,7 +23,7 @@ syntect = { version = "5", features = ["html"] }
 
 takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
 takumi-html = { path = "../../takumi-html" }
-grass = "0.13.4"
+grass = { version = "0.13.4", optional = true }
 reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false, optional = true }
 thiserror = "2.0"
 uniffi = "0.29.5"

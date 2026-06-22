@@ -272,8 +272,12 @@ impl Renderer {
         let mut options = FromHtmlOptions::new()
             .load_linked_stylesheets(request.load_linked_stylesheets.unwrap_or(true))
             .normalize_whitespace(request.normalize_whitespace.unwrap_or(true))
-            .local_asset_mode(LocalAssetMode::AbsolutePath)
-            .stylesheet_compiler(Box::new(compile_stylesheet));
+            .local_asset_mode(LocalAssetMode::AbsolutePath);
+
+        #[cfg(feature = "scss")]
+        {
+            options = options.stylesheet_compiler(Box::new(compile_stylesheet));
+        }
 
         if let Some(emoji_type) = request.emoji_type {
             options = options.emoji_type(emoji_type.into_emoji_type());
@@ -744,6 +748,7 @@ fn is_supported_font_file(path: &Path) -> bool {
         .is_some_and(|ext| matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc"))
 }
 
+#[cfg(feature = "scss")]
 fn compile_stylesheet(source: &str, base_path: Option<&Path>) -> std::result::Result<String, HtmlError> {
     let mut opts = grass::Options::default();
     if let Some(dir) = base_path {
