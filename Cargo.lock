@@ -3141,7 +3141,6 @@ version = "0.1.3"
 dependencies = [
  "base64",
  "ego-tree",
- "grass",
  "html5ever",
  "mime_guess",
  "minijinja",
@@ -3184,6 +3183,7 @@ version = "0.2.5"
 dependencies = [
  "chrono",
  "comrak",
+ "grass",
  "image",
  "minijinja",
  "reqwest",

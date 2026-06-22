@@ -638,13 +638,12 @@ mod tests {
     }
 
     #[test]
-    fn resolves_scss_import_in_inline_style() {
-        let temp = tempdir();
-        write(temp.path().join("_vars.scss"), "$color: blue;");
-
-        let options = FromHtmlOptions::new().with_base_path(temp.path());
+    fn stylesheet_compiler_is_invoked_for_inline_style() {
+        let options = FromHtmlOptions::new().stylesheet_compiler(Box::new(|source, _base| {
+            Ok(source.replace("$color", "blue"))
+        }));
         let result = from_document_with_options(
-            r#"<style lang="scss">@import "vars"; .foo { color: $color; }</style>"#,
+            r#"<style>.foo { color: $color; }</style>"#,
             &options,
         )
         .unwrap();
@@ -653,30 +652,39 @@ mod tests {
     }
 
     #[test]
-    fn resolves_css_import_in_linked_stylesheet() {
+    fn stylesheet_compiler_is_invoked_for_linked_stylesheet() {
         let temp = tempdir();
-        write(temp.path().join("base.scss"), ".base { color: green; }");
         write(
             temp.path().join("linked.css"),
-            "@import 'base'; .foo { color: black; }",
+            ".foo { color: $color; }",
         );
 
         let options = FromHtmlOptions::new()
             .with_base_path(temp.path())
-            .load_linked_stylesheets(true);
+            .load_linked_stylesheets(true)
+            .stylesheet_compiler(Box::new(|source, _base| {
+                Ok(source.replace("$color", "green"))
+            }));
         let result = from_document_with_options(
             r#"<html><head><link rel="stylesheet" href="linked.css"></head></html>"#,
             &options,
         )
         .unwrap();
 
-        assert!(result.stylesheets[0].contains(".base"));
         assert!(result.stylesheets[0].contains("color: green"));
     }
 
     #[test]
-    fn reports_scss_compilation_error() {
-        let result = from_html(r#"<style lang="scss">.foo { color: $missing; }</style>"#);
+    fn stylesheet_compiler_error_is_propagated() {
+        let options = FromHtmlOptions::new().stylesheet_compiler(Box::new(|_source, _base| {
+            Err(HtmlError::StylesheetCompilationFailed {
+                reason: "bad scss".to_string(),
+            })
+        }));
+        let result = from_document_with_options(
+            r#"<style>.foo { color: red; }</style>"#,
+            &options,
+        );
         assert!(matches!(
             result,
             Err(HtmlError::StylesheetCompilationFailed { .. })

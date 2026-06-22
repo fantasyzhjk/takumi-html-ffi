@@ -15,7 +15,6 @@ serde = { version = "1", features = ["derive"] }
 takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
 takumi-css = "0.2.0-beta.0"
 unicode-segmentation = "1.13"
-grass = "0.13.4"
 
 [dev-dependencies]
 tempfile = "3.13"

@@ -97,15 +97,11 @@ fn convert_element(
     if element.tag_name == "style" {
         let stylesheet = collect_direct_text(&element.children);
         if !stylesheet.is_empty() {
-            let mut opts = grass::Options::default();
-            if let Some(base_path) = options.base_path.as_deref() {
-                opts = opts.load_path(base_path);
-            }
-            let stylesheet = grass::from_string(stylesheet, &opts).map_err(|error| {
-                HtmlError::StylesheetCompilationFailed {
-                    reason: error.to_string(),
-                }
-            })?;
+            let stylesheet = if let Some(compiler) = &options.stylesheet_compiler {
+                compiler(&stylesheet, options.base_path.as_deref())?
+            } else {
+                stylesheet
+            };
             let stylesheet = asset_resolver.resolve_inline_stylesheet(&stylesheet)?;
             if !stylesheet.is_empty() {
                 stylesheets.push(stylesheet);

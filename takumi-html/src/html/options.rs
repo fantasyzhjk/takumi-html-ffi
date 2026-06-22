@@ -1,6 +1,10 @@
-use std::path::PathBuf;
+use std::{fmt, path::{Path, PathBuf}};
 
 use super::emoji::EmojiType;
+
+/// Callback signature for compiling stylesheet source (e.g. SCSS → CSS).
+/// Receives the raw source text and an optional base path for resolving imports.
+pub type StylesheetCompiler = Box<dyn Fn(&str, Option<&Path>) -> super::Result<String>>;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LocalAssetMode {
@@ -10,7 +14,7 @@ pub enum LocalAssetMode {
     AbsolutePath,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Default)]
 pub struct FromHtmlOptions {
     pub base_path: Option<PathBuf>,
     pub load_linked_stylesheets: bool,
@@ -18,6 +22,21 @@ pub struct FromHtmlOptions {
     pub local_asset_mode: Option<LocalAssetMode>,
     pub normalize_whitespace: bool,
     pub emoji_type: Option<EmojiType>,
+    pub stylesheet_compiler: Option<StylesheetCompiler>,
+}
+
+impl fmt::Debug for FromHtmlOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FromHtmlOptions")
+            .field("base_path", &self.base_path)
+            .field("load_linked_stylesheets", &self.load_linked_stylesheets)
+            .field("resolve_local_assets", &self.resolve_local_assets)
+            .field("local_asset_mode", &self.local_asset_mode)
+            .field("normalize_whitespace", &self.normalize_whitespace)
+            .field("emoji_type", &self.emoji_type)
+            .field("stylesheet_compiler", &self.stylesheet_compiler.as_ref().map(|_| ".."))
+            .finish()
+    }
 }
 
 impl FromHtmlOptions {
@@ -57,6 +76,11 @@ impl FromHtmlOptions {
 
     pub fn emoji_type(mut self, emoji_type: EmojiType) -> Self {
         self.emoji_type = Some(emoji_type);
+        self
+    }
+
+    pub fn stylesheet_compiler(mut self, compiler: StylesheetCompiler) -> Self {
+        self.stylesheet_compiler = Some(compiler);
         self
     }
 
