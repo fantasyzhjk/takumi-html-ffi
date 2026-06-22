@@ -1,4 +1,4 @@
-use takumi::layout::node::Node;
+use takumi::prelude::Node;
 
 use super::{
     FromHtmlOptions, FromHtmlResult, HtmlError, Result,

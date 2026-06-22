@@ -1,9 +1,6 @@
 use std::str::FromStr;
 
-use takumi::layout::{
-    node::Node,
-    style::{Style, StyleDeclarationBlock},
-};
+use takumi::prelude::{Node, Style, StyleDeclarationBlock};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{HtmlError, Result};

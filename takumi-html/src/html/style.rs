@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use takumi::layout::style::{Style, StyleDeclarationBlock};
+use takumi::prelude::{Style, StyleDeclarationBlock};
 
 use super::{HtmlError, Result};
 

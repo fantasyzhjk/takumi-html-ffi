@@ -6,8 +6,8 @@ use std::{
 use image::{GenericImageView, ImageFormat as DecodedImageFormat};
 use serde_json::json;
 use takumi_render_uniffi::{
-    RenderInput, ImageFormat, InlineTemplateInput, RenderRequest, RenderSize,
-    TemplateRequest, Renderer, TemplateContentKind, TemplateEngine, TemplateInput,
+    ImageFormat, InlineTemplateInput, RenderInput, RenderRequest, RenderSize, Renderer,
+    TemplateContentKind, TemplateEngine, TemplateInput, TemplateRequest,
 };
 use tempfile::TempDir;
 
@@ -126,6 +126,145 @@ fn render_template_file_to_file_writes_decodable_webp() {
         .expect("decode webp bytes");
     assert_eq!(decoded.width(), 64);
     assert_eq!(decoded.height(), 64);
+}
+
+#[test]
+fn jpeg_and_webp_encoders_preserve_public_quality_semantics() {
+    let renderer = Renderer::new();
+    let markup = r#"<style>
+html, body { margin: 0; width: 16px; height: 16px; background: rgb(32, 96, 160); }
+</style>"#;
+
+    let jpeg = renderer
+        .render(inline_render_request(
+            markup,
+            16,
+            16,
+            ImageFormat::Jpeg,
+            None,
+        ))
+        .expect("encode default-quality JPEG");
+    image::load_from_memory_with_format(&jpeg.bytes, DecodedImageFormat::Jpeg)
+        .expect("decode JPEG output");
+
+    let lossy_webp = renderer
+        .render(inline_render_request(
+            markup,
+            16,
+            16,
+            ImageFormat::WebP,
+            Some(64),
+        ))
+        .expect("encode lossy WebP");
+    image::load_from_memory_with_format(&lossy_webp.bytes, DecodedImageFormat::WebP)
+        .expect("decode lossy WebP output");
+    assert!(contains_webp_chunk(&lossy_webp.bytes, b"VP8 "));
+    assert!(!contains_webp_chunk(&lossy_webp.bytes, b"VP8L"));
+
+    for quality in [None, Some(100)] {
+        let lossless_webp = renderer
+            .render(inline_render_request(
+                markup,
+                16,
+                16,
+                ImageFormat::WebP,
+                quality,
+            ))
+            .expect("encode lossless WebP");
+        image::load_from_memory_with_format(&lossless_webp.bytes, DecodedImageFormat::WebP)
+            .expect("decode lossless WebP output");
+        assert!(contains_webp_chunk(&lossless_webp.bytes, b"VP8L"));
+        assert!(!contains_webp_chunk(&lossless_webp.bytes, b"VP8 "));
+    }
+}
+
+#[test]
+fn css_default_position_is_static() {
+    let image = render_inline_png(
+        r#"<style>
+html, body { margin: 0; width: 64px; height: 32px; background: white; }
+.outer { display: block; position: relative; width: 64px; height: 32px; }
+.middle { display: block; margin-left: 24px; width: 16px; height: 16px; background: blue; }
+.marker { display: block; position: absolute; left: 0; top: 0; width: 8px; height: 8px; background: red; }
+</style>
+<div class="outer"><div class="middle"><div class="marker"></div></div></div>"#,
+        64,
+        32,
+    );
+    assert_eq!(image.get_pixel(2, 2).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(26, 2).0, [0, 0, 255, 255]);
+}
+
+#[test]
+fn css_border_and_outline_default_to_medium_width() {
+    let image = render_inline_png(
+        r#"<style>
+html, body { margin: 0; width: 72px; height: 40px; background: white; }
+.stage { display: block; position: relative; width: 72px; height: 40px; }
+.border { display: block; position: absolute; left: 8px; top: 8px; width: 20px; height: 20px;
+          border-style: solid; border-color: red; background: white; }
+.outline { display: block; position: absolute; left: 48px; top: 12px; width: 12px; height: 12px;
+           outline-style: solid; outline-color: blue; background: white; }
+</style>
+<div class="stage"><div class="border"></div><div class="outline"></div></div>"#,
+        72,
+        40,
+    );
+    assert_eq!(image.get_pixel(8, 16).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(10, 16).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(11, 16).0, [255, 255, 255, 255]);
+    assert_eq!(image.get_pixel(45, 16).0, [0, 0, 255, 255]);
+    assert_eq!(image.get_pixel(47, 16).0, [0, 0, 255, 255]);
+}
+
+#[test]
+fn css_negative_scale_reflects_content() {
+    let image = render_inline_png(
+        r#"<style>
+html, body { margin: 0; width: 40px; height: 24px; background: white; }
+.stage { display: block; position: relative; width: 40px; height: 24px; }
+.shape { display: block; position: absolute; left: 10px; top: 8px; width: 20px; height: 8px;
+         transform: scaleX(-1); transform-origin: center;
+         background: linear-gradient(to right, red 0 25%, blue 25% 100%); }
+</style>
+<div class="stage"><div class="shape"></div></div>"#,
+        40,
+        24,
+    );
+    assert_eq!(image.get_pixel(12, 12).0, [0, 0, 255, 255]);
+    assert_eq!(image.get_pixel(28, 12).0, [255, 0, 0, 255]);
+}
+
+#[test]
+fn css_line_clamp_shorthand_limits_rendered_lines() {
+    let image = render_inline_png(
+        r#"<style>
+html, body { margin: 0; width: 80px; height: 48px; background: white; }
+.clamp { display: block; width: 48px; color: black; font-family: Rubik; font-size: 12px;
+         line-height: 14px; line-clamp: 2 "..."; }
+</style>
+<div class="clamp">first second third fourth fifth sixth seventh eighth ninth</div>"#,
+        80,
+        48,
+    );
+    assert!(count_non_white_pixels(&image, 0, 28) > 0);
+    assert_eq!(count_non_white_pixels(&image, 30, 48), 0);
+}
+
+#[test]
+fn svg_image_current_color_is_not_tinted_by_host_color() {
+    let image = render_inline_png(
+        r#"<style>
+html, body { margin: 0; width: 24px; height: 24px; background: white; }
+.host { color: red; }
+</style>
+<div class="host"><svg width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+  <rect width="16" height="16" fill="currentColor" />
+</svg></div>"#,
+        24,
+        24,
+    );
+    assert_eq!(image.get_pixel(8, 8).0, [0, 0, 0, 255]);
 }
 
 #[test]
@@ -381,6 +520,57 @@ fn html_request(html: String, format: ImageFormat) -> RenderRequest {
         load_linked_stylesheets: None,
         normalize_whitespace: None,
     }
+}
+
+fn inline_render_request(
+    markup: &str,
+    width: u32,
+    height: u32,
+    format: ImageFormat,
+    quality: Option<u8>,
+) -> RenderRequest {
+    RenderRequest {
+        input: RenderInput::Inline(markup.to_string()),
+        viewport: RenderSize {
+            width: Some(width),
+            height: Some(height),
+            device_pixel_ratio: None,
+        },
+        format,
+        quality,
+        load_linked_stylesheets: None,
+        normalize_whitespace: None,
+    }
+}
+
+fn render_inline_png(markup: &str, width: u32, height: u32) -> image::RgbaImage {
+    let renderer = Renderer::new();
+    renderer
+        .add_font_file(font_path().to_string_lossy().into_owned())
+        .expect("load fixture font");
+    let rendered = renderer
+        .render(inline_render_request(
+            markup,
+            width,
+            height,
+            ImageFormat::Png,
+            None,
+        ))
+        .expect("render CSS fixture");
+    image::load_from_memory_with_format(&rendered.bytes, DecodedImageFormat::Png)
+        .expect("decode CSS fixture")
+        .to_rgba8()
+}
+
+fn contains_webp_chunk(bytes: &[u8], chunk: &[u8; 4]) -> bool {
+    bytes.windows(chunk.len()).any(|window| window == chunk)
+}
+
+fn count_non_white_pixels(image: &image::RgbaImage, start_y: u32, end_y: u32) -> usize {
+    (start_y..end_y)
+        .flat_map(|y| (0..image.width()).map(move |x| image.get_pixel(x, y).0))
+        .filter(|pixel| *pixel != [255, 255, 255, 255])
+        .count()
 }
 
 fn sample_context_json() -> String {

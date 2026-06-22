@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 
-use takumi::layout::{
-    node::Node,
-    style::{Direction, Style},
-};
+use takumi::prelude::{Direction, Node, Style};
 
 use super::{Result, parser::ParsedElement, resource::AssetResolver, style::StyleAdapter};
 

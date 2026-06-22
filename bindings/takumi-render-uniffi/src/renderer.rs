@@ -1,17 +1,14 @@
 use std::{
-    borrow::Cow,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
 };
 
-use takumi::{
-    GlobalContext,
-    layout::Viewport,
-    rendering::{RenderOptions, measure_layout, render as takumi_render, write_image},
-    resources::{font::FontResource, image::ImageSource},
+use takumi::prelude::{
+    Bitmap, FontResource, Fonts, ImageSource, MeasuredNode, RenderOptions, Viewport,
 };
+use takumi::{measure, render as takumi_render, write_image};
 use takumi_html::{
     FromHtmlOptions, FromHtmlResult, HtmlError, LocalAssetMode, from_document_with_options,
 };
@@ -28,7 +25,7 @@ use crate::{
 
 #[derive(uniffi::Object)]
 pub struct Renderer {
-    global: Mutex<GlobalContext>,
+    fonts: Mutex<Fonts>,
     search_paths: RwLock<Vec<PathBuf>>,
     file_cache: Arc<Mutex<FileCache>>,
     font_cache: Mutex<FontCache>,
@@ -43,7 +40,7 @@ struct PreparedHtmlInput {
 impl Default for Renderer {
     fn default() -> Self {
         Self {
-            global: Mutex::new(GlobalContext::default()),
+            fonts: Mutex::new(Fonts::default()),
             search_paths: RwLock::new(Vec::new()),
             file_cache: Arc::new(Mutex::new(FileCache::default())),
             font_cache: Mutex::new(FontCache::default()),
@@ -87,7 +84,7 @@ impl Renderer {
     }
 
     pub fn clear_caches(&self) -> Result<()> {
-        *self.global.lock().map_err(|_| state_lock_error("global"))? = GlobalContext::default();
+        *self.fonts.lock().map_err(|_| state_lock_error("fonts"))? = Fonts::default();
         self.file_cache
             .lock()
             .map_err(|_| state_lock_error("file_cache"))?
@@ -108,11 +105,6 @@ impl Renderer {
             .lock()
             .map_err(|_| state_lock_error("image_cache"))?
             .set_enabled(enabled);
-        self.global
-            .lock()
-            .map_err(|_| state_lock_error("global"))?
-            .persistent_image_store
-            .clear();
         Ok(())
     }
 
@@ -164,15 +156,15 @@ impl Renderer {
         let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
-        let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
+        let fonts = self.fonts.lock().map_err(|_| state_lock_error("fonts"))?;
         let viewport = if request_has_auto_viewport(&request) {
-            let measured = measure_layout(
+            let measured = measure(
                 RenderOptions::builder()
                     .viewport(viewport_from_request(&request))
                     .node(node.clone())
-                    .fetched_resources(fetched_resources.clone())
+                    .images(fetched_resources.clone())
                     .stylesheet(stylesheet.clone())
-                    .global(&global)
+                    .fonts(&fonts)
                     .build(),
             )?;
             let (width, height) = resolved_layout_size(&measured, request.viewport.clone());
@@ -184,13 +176,13 @@ impl Renderer {
             RenderOptions::builder()
                 .viewport(viewport)
                 .node(node)
-                .fetched_resources(fetched_resources)
+                .images(fetched_resources)
                 .stylesheet(stylesheet)
-                .global(&global)
+                .fonts(&fonts)
                 .build(),
         )?;
         let bytes = self.encode_image(&image, &request)?;
-        drop(global);
+        drop(fonts);
         self.prune_image_cache(pass)?;
 
         Ok(RenderedImage {
@@ -209,18 +201,18 @@ impl Renderer {
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
         let viewport = viewport_from_request(&request);
-        let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
-        let measured = measure_layout(
+        let fonts = self.fonts.lock().map_err(|_| state_lock_error("fonts"))?;
+        let measured = measure(
             RenderOptions::builder()
                 .viewport(viewport)
                 .node(node)
-                .fetched_resources(fetched_resources)
+                .images(fetched_resources)
                 .stylesheet(stylesheet)
-                .global(&global)
+                .fonts(&fonts)
                 .build(),
         )?;
         let (width, height) = resolved_layout_size(&measured, request.viewport);
-        drop(global);
+        drop(fonts);
         self.prune_image_cache(pass)?;
 
         Ok(MeasuredLayout { width, height })
@@ -389,9 +381,7 @@ impl Renderer {
         self.image_cache
             .lock()
             .map_err(|_| state_lock_error("image_cache"))?
-            .insert(cache_key.clone(), signature, image.clone(), pass);
-        self.store_persistent_image(cache_key, image.clone())?;
-
+            .insert(cache_key, signature, image.clone(), pass);
         Ok(image)
     }
 
@@ -407,16 +397,6 @@ impl Renderer {
             .map_err(|error| RendererError::Render(error.to_string()))
     }
 
-    fn store_persistent_image(&self, cache_key: String, image: ImageSource) -> Result<()> {
-        self.global
-            .lock()
-            .map_err(|_| state_lock_error("global"))?
-            .persistent_image_store
-            .insert(cache_key, image);
-
-        Ok(())
-    }
-
     fn next_image_cache_pass(&self) -> Result<u64> {
         Ok(self
             .image_cache
@@ -426,32 +406,22 @@ impl Renderer {
     }
 
     fn prune_image_cache(&self, pass: u64) -> Result<()> {
-        let entries = {
-            let mut image_cache = self
-                .image_cache
-                .lock()
-                .map_err(|_| state_lock_error("image_cache"))?;
-            if !image_cache.is_enabled() || !image_cache.prune(pass) {
-                return Ok(());
-            }
-            image_cache.persistent_entries()
-        };
-
-        let global = self.global.lock().map_err(|_| state_lock_error("global"))?;
-        global.persistent_image_store.clear();
-        for (key, image) in entries {
-            global.persistent_image_store.insert(key, image);
+        let mut image_cache = self
+            .image_cache
+            .lock()
+            .map_err(|_| state_lock_error("image_cache"))?;
+        if image_cache.is_enabled() {
+            image_cache.prune(pass);
         }
         Ok(())
     }
 
-    fn encode_image(&self, image: &image::RgbaImage, request: &RenderRequest) -> Result<Vec<u8>> {
+    fn encode_image(&self, image: &Bitmap, request: &RenderRequest) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         write_image(
-            Cow::Borrowed(image),
+            image,
             &mut bytes,
-            request.format.into_output_format(),
-            request.quality.map(|value| value.min(100)),
+            request.format.into_output_format(request.quality),
         )
         .map_err(|error| RendererError::encode(error.to_string()))?;
         Ok(bytes)
@@ -499,11 +469,10 @@ impl Renderer {
             }
         }
 
-        self.global
+        self.fonts
             .lock()
-            .map_err(|_| state_lock_error("global"))?
-            .font_context
-            .load_and_store(FontResource::new(bytes.as_ref().as_slice()))?;
+            .map_err(|_| state_lock_error("fonts"))?
+            .register(FontResource::new(bytes.as_ref().as_slice()))?;
 
         let mut font_cache = self
             .font_cache
@@ -526,11 +495,10 @@ impl Renderer {
             }
         }
 
-        self.global
+        self.fonts
             .lock()
-            .map_err(|_| state_lock_error("global"))?
-            .font_context
-            .load_and_store(FontResource::new(bytes.as_slice()))?;
+            .map_err(|_| state_lock_error("fonts"))?
+            .register(FontResource::new(bytes.as_slice()))?;
 
         self.font_cache
             .lock()
@@ -599,10 +567,7 @@ fn request_has_auto_viewport(request: &RenderRequest) -> bool {
     request.viewport.width.is_none() || request.viewport.height.is_none()
 }
 
-fn resolved_layout_size(
-    measured: &takumi::rendering::MeasuredNode,
-    viewport: RenderSize,
-) -> (u32, u32) {
+fn resolved_layout_size(measured: &MeasuredNode, viewport: RenderSize) -> (u32, u32) {
     let width = viewport
         .width
         .unwrap_or_else(|| measured.width.round().max(0.0) as u32);

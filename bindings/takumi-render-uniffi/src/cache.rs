@@ -8,7 +8,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use takumi::resources::image::ImageSource;
+use takumi::prelude::ImageSource;
 
 pub(crate) const DEFAULT_IMAGE_CACHE_MAX_ENTRIES: usize = 256;
 pub(crate) const DEFAULT_IMAGE_CACHE_INACTIVE_PASSES: u64 = 64;
@@ -135,13 +135,6 @@ impl ImageCache {
         }
 
         before != self.entries.len()
-    }
-
-    pub(crate) fn persistent_entries(&self) -> Vec<(String, ImageSource)> {
-        self.entries
-            .iter()
-            .map(|(key, cached)| (key.clone(), cached.image.clone()))
-            .collect()
     }
 
     pub(crate) fn entry_count(&self) -> usize {

@@ -1,6 +1,6 @@
 use std::{io, string::FromUtf8Error};
 
-use takumi::resources::font::FontError;
+use takumi::prelude::{Error as TakumiError, FontError};
 use takumi_html::HtmlError;
 
 pub type Result<T> = std::result::Result<T, RendererError>;
@@ -66,8 +66,8 @@ impl From<HtmlError> for RendererError {
     }
 }
 
-impl From<takumi::Error> for RendererError {
-    fn from(value: takumi::Error) -> Self {
+impl From<TakumiError> for RendererError {
+    fn from(value: TakumiError) -> Self {
         Self::Render(value.to_string())
     }
 }

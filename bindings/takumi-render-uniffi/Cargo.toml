@@ -16,7 +16,7 @@ serde_json = "1"
 chrono = "0.4"
 syntect = { version = "5", features = ["html"] }
 
-takumi = { version = "1.6.0", features = ["svg", "rayon"] }
+takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
 takumi-html = { path = "../../takumi-html" }
 thiserror = "2.0"
 uniffi = "0.29.5"

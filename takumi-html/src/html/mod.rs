@@ -8,10 +8,8 @@ mod style;
 
 use std::{fmt, path::PathBuf};
 
-use takumi::{
-    StyleSheetParseError,
-    layout::{node::Node, style::StyleSheet},
-};
+use takumi::prelude::{Node, StyleSheet};
+use takumi_css::error::StyleSheetParseError;
 
 pub use emoji::EmojiType;
 pub use options::{FromHtmlOptions, LocalAssetMode};
@@ -224,7 +222,7 @@ pub fn from_fragment_with_options(
 mod tests {
     use std::{fs, path::Path};
 
-    use takumi::layout::node::Node;
+    use takumi::prelude::Node;
     use tempfile::TempDir;
 
     use super::{
