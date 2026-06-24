@@ -19,6 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Extract version
         id: version
         run: |
@@ -53,6 +59,9 @@ jobs:
             sed -i "s/^version = \".*\"/version = \"$VER\"/" "$f"
             echo "Updated $f"
           done
+
+      - name: Update Cargo.lock
+        run: cargo check --workspace --quiet
 
       - name: Commit and push
         id: commit
