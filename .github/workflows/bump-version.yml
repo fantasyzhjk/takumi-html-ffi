@@ -1,0 +1,79 @@
+name: Bump Version
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump:
+    name: Update version files
+    runs-on: ubuntu-latest
+    # 只在 tag 不含 pre-release 后缀时更新（如 v0.3.0，不处理 v0.3.0-beta.1）
+    # 如果你想所有 tag 都触发，删掉这个 if
+    # if: "!contains(github.ref_name, '-')"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "==> Bumping to $TAG"
+
+      - name: Update Cargo.toml (bindings)
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          for f in bindings/takumi-render-uniffi/Cargo.toml bindings/takumi-template-uniffi/Cargo.toml; do
+            sed -i "s/^version = \".*\"/version = \"$VER\"/" "$f"
+            echo "Updated $f"
+          done
+
+      - name: Update .csproj (C#)
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          for f in \
+            bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Render.UniFFI.csproj \
+            bindings/takumi-template-uniffi/csharp/Takumi.Template.UniFFI/Takumi.Template.UniFFI.csproj; do
+            sed -i "s|<Version>.*</Version>|<Version>$VER</Version>|" "$f"
+            echo "Updated $f"
+          done
+
+      - name: Update build.gradle.kts (JVM)
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          for f in \
+            bindings/takumi-render-uniffi/jvm/build.gradle.kts \
+            bindings/takumi-template-uniffi/jvm/build.gradle.kts; do
+            sed -i "s/^version = \".*\"/version = \"$VER\"/" "$f"
+            echo "Updated $f"
+          done
+
+      - name: Commit and push
+        id: commit
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No version changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger build workflows
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build-render-uniffi.yml --ref master
+          gh workflow run build-template-uniffi.yml --ref master
+          echo "==> Triggered build workflows"
