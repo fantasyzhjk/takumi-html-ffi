@@ -15,7 +15,7 @@ http = ["reqwest"]
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg", "rayon"] }
 
-takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
+takumi = { version = "2.12.0", features = ["svg-source", "rayon", "raster-backend"] }
 takumi-html = { path = "../../takumi-html" }
 grass = { version = "0.13.4", optional = true }
 reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false, optional = true }

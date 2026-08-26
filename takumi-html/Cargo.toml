@@ -12,8 +12,8 @@ minijinja = "2.20"
 mime_guess = "2.0.5"
 scraper = "0.27"
 serde = { version = "1", features = ["derive"] }
-takumi = { version = "2.0.0-beta.0", features = ["svg", "rayon", "raster-backend"] }
-takumi-css = "0.2.0-beta.0"
+takumi = { version = "2.12.0", features = ["svg-source", "rayon", "raster-backend"] }
+takumi-core = "0.23.0"
 unicode-segmentation = "1.13"
 
 [dev-dependencies]

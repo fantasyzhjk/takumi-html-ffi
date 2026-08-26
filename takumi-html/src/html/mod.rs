@@ -9,7 +9,7 @@ mod style;
 use std::{fmt, path::PathBuf};
 
 use takumi::prelude::{Node, NodeKind, ImageSourceInput, StyleSheet};
-use takumi_css::error::StyleSheetParseError;
+use takumi_core::error::StyleSheetParseError;
 
 pub use emoji::EmojiType;
 pub use options::{FromHtmlOptions, LocalAssetMode};
@@ -106,15 +106,11 @@ impl FromHtmlResult {
     /// resources (image `src`, inline style `url(...)`) with stylesheet-level
     /// resources (`url(...)` in extracted `<style>` and linked CSS).
     pub fn resource_urls(&self) -> impl Iterator<Item = &str> {
-        // Node::resource_urls() covers inline/preset/tw style url(...) but only
-        // returns remote image src URLs. We supplement with all image src URLs
-        // (including local paths) via our own traversal.
+        // Collect image URLs (including local paths) and CSS `url(...)` references
         let mut image_urls = Vec::new();
         collect_image_src_urls(&self.node, &mut image_urls);
 
-        self.node
-            .resource_urls()
-            .chain(image_urls)
+        image_urls.into_iter()
             .chain(self.stylesheets.iter().flat_map(|s| css_resource_urls(s)))
     }
 }
@@ -344,7 +340,7 @@ mod tests {
                 .unwrap();
 
         assert_eq!(
-            result.node.resource_urls().collect::<Vec<_>>(),
+            result.resource_urls().collect::<Vec<_>>(),
             vec!["https://example.com/example.png"]
         );
         assert!(
@@ -779,7 +775,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            result.node.resource_urls().collect::<Vec<_>>(),
+            result.resource_urls().collect::<Vec<_>>(),
             vec!["https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/1f600.svg"]
         );
         assert!(result.node.to_html().contains("Hello "));
@@ -790,7 +786,7 @@ mod tests {
     fn leaves_emoji_text_unchanged_when_emoji_extraction_is_disabled() {
         let result = from_document("<div>Hello 😀!</div>").unwrap();
 
-        assert!(result.node.resource_urls().collect::<Vec<_>>().is_empty());
+        assert!(result.resource_urls().collect::<Vec<_>>().is_empty());
         assert!(result.node.to_html().contains("😀"));
     }
 

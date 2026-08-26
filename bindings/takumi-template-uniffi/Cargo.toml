@@ -8,7 +8,7 @@ license = "Apache-2.0"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-comrak = { version = "0.52", features = ["syntect"] }
+comrak = { version = "0.54.0", features = ["syntect"] }
 minijinja = { version = "2.20", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

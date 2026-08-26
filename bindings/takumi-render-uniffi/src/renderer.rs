@@ -145,7 +145,7 @@ impl Renderer {
                     .viewport(make_viewport_from_request(&request))
                     .node(node.clone())
                     .images(fetched_resources.clone())
-                    .stylesheet(stylesheet.clone())
+                    .stylesheet(stylesheet.clone().into())
                     .fonts(&fonts)
                     .build(),
             )?;
@@ -159,7 +159,7 @@ impl Renderer {
                 .viewport(viewport)
                 .node(node)
                 .images(fetched_resources)
-                .stylesheet(stylesheet)
+                .stylesheet(stylesheet.into())
                 .fonts(&fonts)
                 .build(),
         )?;
@@ -189,7 +189,7 @@ impl Renderer {
                 .viewport(viewport)
                 .node(node)
                 .images(fetched_resources)
-                .stylesheet(stylesheet)
+                .stylesheet(stylesheet.into())
                 .fonts(&fonts)
                 .build(),
         )?;
