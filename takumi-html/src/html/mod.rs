@@ -7,7 +7,7 @@ mod resource;
 
 use std::{fmt, path::PathBuf};
 
-use takumi::prelude::{Node, NodeKind, ImageSourceInput, StyleSheet};
+use takumi::prelude::{ImageSourceInput, Node, NodeKind, StyleSheet};
 
 pub use emoji::EmojiType;
 pub use options::{FromHtmlOptions, LocalAssetMode};
@@ -33,16 +33,18 @@ impl FromHtmlResult {
         let mut image_urls = Vec::new();
         collect_image_src_urls(&self.node, &mut image_urls);
 
-        image_urls.into_iter()
+        image_urls
+            .into_iter()
             .chain(self.stylesheets.iter().flat_map(|s| css_resource_urls(s)))
     }
 }
 
 fn collect_image_src_urls<'a>(node: &'a Node, urls: &mut Vec<&'a str>) {
     if let NodeKind::Image(image) = &node.kind
-        && let ImageSourceInput::Url(src) = &image.src {
-            urls.push(src.as_ref());
-        }
+        && let ImageSourceInput::Url(src) = &image.src
+    {
+        urls.push(src.as_ref());
+    }
     if let NodeKind::Container { children } = &node.kind {
         for child in children {
             collect_image_src_urls(child, urls);
@@ -131,18 +133,51 @@ impl fmt::Display for HtmlError {
 
 impl std::error::Error for HtmlError {}
 
-/// Parse HTML using fragment semantics and convert it into a Takumi node tree.
-///
-/// This is the lightweight public entry point for the MVP skeleton. Full
-/// document-specific behavior can be layered on top later without changing the
-/// conversion boundary exposed here.
+/// Parse HTML using document semantics for `<html>` roots and fragment semantics
+/// for all other markup.
 pub fn from_html(markup: &str) -> Result<FromHtmlResult> {
     from_html_with_options(markup, &FromHtmlOptions::default())
 }
 
-/// Parse HTML using fragment semantics with conversion options.
+/// Parse HTML with automatic document/fragment root detection.
 pub fn from_html_with_options(markup: &str, options: &FromHtmlOptions) -> Result<FromHtmlResult> {
-    from_fragment_with_options(markup, options)
+    if starts_with_html_element(markup) {
+        from_document_with_options(markup, options)
+    } else {
+        from_fragment_with_options(markup, options)
+    }
+}
+
+fn starts_with_html_element(source: &str) -> bool {
+    let mut rest = source.trim_start();
+
+    loop {
+        let lowered = rest.get(..9).map(str::to_ascii_lowercase);
+        if lowered
+            .as_deref()
+            .is_some_and(|prefix| prefix.starts_with("<!doctype"))
+        {
+            let Some((_, after)) = rest.split_once('>') else {
+                return false;
+            };
+            rest = after.trim_start();
+            continue;
+        }
+
+        if rest.starts_with("<!--") {
+            let Some((_, after)) = rest.split_once("-->") else {
+                return false;
+            };
+            rest = after.trim_start();
+            continue;
+        }
+
+        let Some((prefix, after)) = rest.split_at_checked("<html".len()) else {
+            return false;
+        };
+        return prefix.eq_ignore_ascii_case("<html")
+            && (after.starts_with(['>', '/']) || after.starts_with(char::is_whitespace));
+    }
 }
 
 /// Parse a complete HTML document and convert it into a Takumi node tree.
@@ -197,7 +232,52 @@ mod tests {
     fn converts_nested_elements() {
         let result = from_html("<div><span>Nested</span></div>").unwrap();
 
-        assert_eq!(result.node.to_html(), "<div><span>Nested</span></div>");
+        assert_eq!(
+            result.node.to_html(),
+            "<div style=\"display: block;\"><span>Nested</span></div>"
+        );
+    }
+
+    #[test]
+    fn applies_default_element_styles() {
+        let result = from_html("<h1>Title</h1>").unwrap();
+        let rendered = result.node.to_html();
+
+        assert!(rendered.contains("font-size: 2em;"));
+        assert!(rendered.contains("margin-top: 0.67em;"));
+        assert!(rendered.contains("font-weight: 700;"));
+        assert!(rendered.contains("display: block;"));
+    }
+
+    #[test]
+    fn parses_document_root_from_general_entry_point() {
+        let result =
+            from_html("<!doctype html><!-- comment --><html><body><div>Ready</div></body></html>")
+                .unwrap();
+
+        assert!(result.node.to_html().starts_with("<html"));
+        assert!(result.node.to_html().contains("<body"));
+    }
+
+    #[test]
+    fn parses_lang_attribute() {
+        let result = from_html(r#"<p lang="zh-Hant">你好</p>"#).unwrap();
+        let rendered = result.node.to_html();
+
+        assert_eq!(rendered.matches("lang=").count(), 1);
+        assert!(rendered.contains(r#"lang="zh-Hant""#));
+    }
+
+    #[test]
+    fn ignores_unreadable_inline_declarations_but_keeps_valid_ones() {
+        let result =
+            from_html(r#"<div style="font-size:64px;width:fit-content;color:red">Ready</div>"#)
+                .unwrap();
+        let rendered = result.node.to_html();
+
+        assert!(rendered.contains("font-size: 64px;"));
+        assert!(rendered.contains("color: rgb(255, 0, 0);"));
+        assert!(!rendered.contains("fit-content"));
     }
 
     #[test]
@@ -239,7 +319,10 @@ mod tests {
 
         assert!(result.stylesheets[0].contains("body"));
         assert!(result.stylesheets[0].contains("color: red"));
-        assert_eq!(result.node.to_html(), "<div>Ready</div>");
+        assert_eq!(
+            result.node.to_html(),
+            "<div style=\"display: block;\">Ready</div>"
+        );
     }
 
     #[test]
@@ -258,7 +341,7 @@ mod tests {
 
         assert_eq!(
             result.node.to_html(),
-            "<div><span>foo</span><span>bar</span></div>"
+            "<div style=\"display: block; width: 100%; height: 100%;\"><span>foo</span><span>bar</span></div>"
         );
     }
 
@@ -273,7 +356,7 @@ mod tests {
         assert!(result.stylesheets[0].contains("background-color: red"));
         assert_eq!(
             result.node.to_html(),
-            r#"<html><body><div class="message">Ready</div></body></html>"#
+            r#"<html style="display: block;"><body style="margin-top: 8px; margin-right: 8px; margin-bottom: 8px; margin-left: 8px; display: block;"><div class="message" style="display: block;">Ready</div></body></html>"#
         );
     }
 
@@ -372,7 +455,12 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.node.to_html().contains(&format!(r#"src="{}""#, expected)));
+        assert!(
+            result
+                .node
+                .to_html()
+                .contains(&format!(r#"src="{}""#, expected))
+        );
     }
 
     #[test]
@@ -489,7 +577,8 @@ mod tests {
     #[test]
     fn compiles_inline_scss() {
         let result =
-            from_html(r#"<style lang="scss">$color: red; .foo { color: $color; }</style>"#).unwrap();
+            from_html(r#"<style lang="scss">$color: red; .foo { color: $color; }</style>"#)
+                .unwrap();
         assert!(result.stylesheets[0].contains("color: red"));
     }
 
@@ -498,11 +587,9 @@ mod tests {
         let options = FromHtmlOptions::new().stylesheet_compiler(Box::new(|source, _base| {
             Ok(source.replace("$color", "blue"))
         }));
-        let result = from_document_with_options(
-            r#"<style>.foo { color: $color; }</style>"#,
-            &options,
-        )
-        .unwrap();
+        let result =
+            from_document_with_options(r#"<style>.foo { color: $color; }</style>"#, &options)
+                .unwrap();
 
         assert!(result.stylesheets[0].contains("color: blue"));
     }
@@ -510,10 +597,7 @@ mod tests {
     #[test]
     fn stylesheet_compiler_is_invoked_for_linked_stylesheet() {
         let temp = tempdir();
-        write(
-            temp.path().join("linked.css"),
-            ".foo { color: $color; }",
-        );
+        write(temp.path().join("linked.css"), ".foo { color: $color; }");
 
         let options = FromHtmlOptions::new()
             .with_base_path(temp.path())
@@ -537,10 +621,7 @@ mod tests {
                 reason: "bad scss".to_string(),
             })
         }));
-        let result = from_document_with_options(
-            r#"<style>.foo { color: red; }</style>"#,
-            &options,
-        );
+        let result = from_document_with_options(r#"<style>.foo { color: red; }</style>"#, &options);
         assert!(matches!(
             result,
             Err(HtmlError::StylesheetCompilationFailed { .. })
@@ -594,7 +675,7 @@ mod tests {
 
         assert_eq!(
             normalized.node.to_html(),
-            "<html><body><div>Ready</div></body></html>"
+            "<html style=\"display: block;\"><body style=\"margin-top: 8px; margin-right: 8px; margin-bottom: 8px; margin-left: 8px; display: block;\"><div style=\"display: block;\">Ready</div></body></html>"
         );
     }
 
@@ -608,7 +689,7 @@ mod tests {
 
         assert_eq!(
             result.node.to_html(),
-            "<html><body><div><span>Hello </span><span>world</span></div></body></html>"
+            "<html style=\"display: block;\"><body style=\"margin-top: 8px; margin-right: 8px; margin-bottom: 8px; margin-left: 8px; display: block;\"><div style=\"display: block;\"><span>Hello </span><span>world</span></div></body></html>"
         );
     }
 

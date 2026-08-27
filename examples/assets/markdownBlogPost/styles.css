@@ -21,7 +21,7 @@ body {
   overflow: hidden;
 }
 
-/* Takumi 当前不会注入浏览器默认 UA stylesheet，所以 Markdown 标签要显式声明布局。 */
+/* Takumi 已应用 Chromium 风格默认样式；以下规则覆盖报告专用布局。 */
 body > * {
   display: block;
   max-width: 980px;

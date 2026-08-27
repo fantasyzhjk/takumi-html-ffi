@@ -1,4 +1,4 @@
-use takumi::prelude::Node;
+use takumi::prelude::{Node, NodeKind, Style, StyleDeclarationBlock};
 
 use super::{
     FromHtmlOptions, FromHtmlResult, HtmlError, Result,
@@ -54,13 +54,9 @@ fn convert_node(
                 Ok(Some(build_text_node(text, options)?))
             }
         }
-        ParsedNode::Element(element) => convert_element(
-            element,
-            asset_resolver,
-            options,
-            stylesheets,
-            text_context,
-        ),
+        ParsedNode::Element(element) => {
+            convert_element(element, asset_resolver, options, stylesheets, text_context)
+        }
     }
 }
 
@@ -191,13 +187,8 @@ fn convert_children(
     let mut nodes = Vec::new();
 
     for child in children {
-        if let Some(node) = convert_node(
-            child,
-            asset_resolver,
-            options,
-            stylesheets,
-            text_context,
-        )? {
+        if let Some(node) = convert_node(child, asset_resolver, options, stylesheets, text_context)?
+        {
             nodes.push(node);
         }
     }
@@ -304,11 +295,24 @@ fn normalize_inline_svg_markup(svg_markup: &str, element: &ParsedElement) -> Str
 }
 
 fn wrap_root_nodes(mut nodes: Vec<Node>) -> Node {
+    while nodes.first().is_some_and(is_whitespace_only_text) {
+        nodes.remove(0);
+    }
+    while nodes.last().is_some_and(is_whitespace_only_text) {
+        nodes.pop();
+    }
+
     match nodes.len() {
         0 => Node::container([]),
         1 => nodes.pop().unwrap_or_else(|| Node::container([])),
-        _ => Node::container(nodes),
+        _ => Node::container(nodes).with_style(Style::from(StyleDeclarationBlock::parse_loosy(
+            "display:block;width:100%;height:100%",
+        ))),
     }
+}
+
+fn is_whitespace_only_text(node: &Node) -> bool {
+    matches!(&node.kind, NodeKind::Text(data) if data.text.trim().is_empty())
 }
 
 fn is_void_element(tag_name: &str) -> bool {

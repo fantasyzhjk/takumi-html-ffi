@@ -50,6 +50,7 @@ fn render_inline_html_linear_gradient_background_renders_color_transition() {
     let request = RenderRequest {
         input: RenderInput::Inline(
             r#"<style>
+      body { margin: 0; }
       .gradient {
         display: block;
         width: 64px;
