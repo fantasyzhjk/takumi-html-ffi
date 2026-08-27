@@ -1,15 +1,15 @@
-package io.github.zhjk.takumi.render.uniffi.generated
+package io.github.zhjk.takumi.render.uniffi
 
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal object TakumiRenderUniffiNativeLoader {
+public object TakumiRenderUniffiNativeLoader {
     private val loaded = AtomicBoolean(false)
 
     @JvmStatic
-    fun ensureLoaded() {
+    public fun ensureLoaded() {
         if (loaded.get()) {
             return
         }
@@ -35,6 +35,7 @@ internal object TakumiRenderUniffiNativeLoader {
                 "uniffi.component.takumi_render_uniffi.libraryOverride",
                 targetPath.toAbsolutePath().toString(),
             )
+            uniffiEnsureInitialized()
             loaded.set(true)
         }
     }

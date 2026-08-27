@@ -35,18 +35,18 @@ impl<'a> AssetResolver<'a> {
     }
 
     pub(crate) fn resolve_image_source(&self, src: &str) -> Result<String> {
-        match self.options.effective_local_asset_mode() {
+        match self.options.local_asset_mode {
             LocalAssetMode::Preserve => Ok(src.to_owned()),
             LocalAssetMode::InlineDataUri | LocalAssetMode::AbsolutePath => self.resolve_local_reference(
-            src,
-            self.options.base_path.as_deref(),
-            LocalReferenceKind::Image,
-        ),
+                src,
+                self.options.base_path.as_deref(),
+                LocalReferenceKind::Image,
+            ),
         }
     }
 
     pub(crate) fn resolve_inline_stylesheet(&self, stylesheet: &str) -> Result<String> {
-        if matches!(self.options.effective_local_asset_mode(), LocalAssetMode::Preserve) {
+        if matches!(self.options.local_asset_mode, LocalAssetMode::Preserve) {
             return Ok(stylesheet.to_owned());
         }
 
@@ -54,7 +54,7 @@ impl<'a> AssetResolver<'a> {
     }
 
     pub(crate) fn resolve_inline_style_attribute(&self, style_text: &str) -> Result<String> {
-        if matches!(self.options.effective_local_asset_mode(), LocalAssetMode::Preserve) {
+        if matches!(self.options.local_asset_mode, LocalAssetMode::Preserve) {
             return Ok(style_text.to_owned());
         }
 
@@ -86,7 +86,7 @@ impl<'a> AssetResolver<'a> {
             stylesheet
         };
 
-        if matches!(self.options.effective_local_asset_mode(), LocalAssetMode::Preserve) {
+        if matches!(self.options.local_asset_mode, LocalAssetMode::Preserve) {
             return Ok(Some(stylesheet));
         }
 
@@ -102,8 +102,8 @@ impl<'a> AssetResolver<'a> {
         let mut cursor = 0;
 
         while cursor < stylesheet.len() {
-            if let Some((token, end_index)) = parse_url_token(stylesheet, cursor) {
-                let resolved = self.resolve_local_reference(&token, base_dir, LocalReferenceKind::CssUrl)?;
+            if let Some((token, end_index)) = parse_css_url(stylesheet, cursor) {
+                let resolved = self.resolve_local_reference(token, base_dir, LocalReferenceKind::CssUrl)?;
                 rewritten.push_str("url(\"");
                 rewritten.push_str(&resolved);
                 rewritten.push_str("\")");
@@ -132,7 +132,7 @@ impl<'a> AssetResolver<'a> {
             return Ok(reference.to_owned());
         };
 
-        match self.options.effective_local_asset_mode() {
+        match self.options.local_asset_mode {
             LocalAssetMode::Preserve => Ok(reference.to_owned()),
             LocalAssetMode::InlineDataUri => self.inline_path_as_data_uri(reference, &path),
             LocalAssetMode::AbsolutePath => self.absolute_path_reference(reference, &path),
@@ -193,7 +193,7 @@ impl<'a> AssetResolver<'a> {
     }
 }
 
-fn parse_url_token(source: &str, start: usize) -> Option<(String, usize)> {
+pub(super) fn parse_css_url(source: &str, start: usize) -> Option<(&str, usize)> {
     let bytes = source.as_bytes();
     if bytes.get(start..start + 3)?.eq_ignore_ascii_case(b"url") {
         let mut cursor = start + 3;
@@ -224,7 +224,7 @@ fn parse_url_token(source: &str, start: usize) -> Option<(String, usize)> {
         while let Some(ch) = source[cursor..].chars().next() {
             if let Some(quote) = quote {
                 if ch == quote {
-                    let value = source[value_start..cursor].to_owned();
+                    let value = &source[value_start..cursor];
                     cursor += ch.len_utf8();
                     while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
                         cursor += 1;
@@ -235,7 +235,7 @@ fn parse_url_token(source: &str, start: usize) -> Option<(String, usize)> {
                     return None;
                 }
             } else if ch == ')' {
-                let value = source[value_start..cursor].trim().to_owned();
+                let value = source[value_start..cursor].trim();
                 return Some((value, cursor + 1));
             }
             cursor += ch.len_utf8();
@@ -284,21 +284,21 @@ fn has_scheme(reference: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_local_relative_reference, parse_url_token, split_reference_suffix};
+    use super::{is_local_relative_reference, parse_css_url, split_reference_suffix};
 
     #[test]
     fn parses_quoted_css_url_tokens() {
         assert_eq!(
-            parse_url_token(r#"background:url("./image.png")"#, 11),
-            Some(("./image.png".to_string(), 29))
+            parse_css_url(r#"background:url("./image.png")"#, 11),
+            Some(("./image.png", 29))
         );
     }
 
     #[test]
     fn parses_unquoted_css_url_tokens() {
         assert_eq!(
-            parse_url_token("background:url(./image.png)", 11),
-            Some(("./image.png".to_string(), 27))
+            parse_css_url("background:url(./image.png)", 11),
+            Some(("./image.png", 27))
         );
     }
 

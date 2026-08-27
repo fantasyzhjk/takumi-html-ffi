@@ -1,8 +1,8 @@
 [bindings.csharp]
-namespace = "Takumi.Render.UniFFI.Generated"
+namespace = "Takumi.Render.UniFFI"
 cdylib_name = "takumi_render_uniffi"
-access_modifier = "internal"
+access_modifier = "public"
 
 [bindings.kotlin]
-package_name = "io.github.zhjk.takumi.render.uniffi.generated"
+package_name = "io.github.zhjk.takumi.render.uniffi"
 cdylib_name = "takumi_render_uniffi"

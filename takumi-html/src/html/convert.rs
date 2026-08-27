@@ -6,7 +6,6 @@ use super::{
     metadata::ExtractedMetadata,
     parser::{ParsedElement, ParsedHtml, ParsedNode},
     resource::AssetResolver,
-    style::{StyleAdapter, default_style_adapter},
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -15,7 +14,6 @@ struct TextContext {
 }
 
 pub(crate) fn convert(document: ParsedHtml, options: &FromHtmlOptions) -> Result<FromHtmlResult> {
-    let style_adapter = default_style_adapter();
     let asset_resolver = AssetResolver::new(options);
     let mut stylesheets = Vec::new();
     let mut nodes = Vec::new();
@@ -23,7 +21,6 @@ pub(crate) fn convert(document: ParsedHtml, options: &FromHtmlOptions) -> Result
     for node in document.nodes {
         if let Some(node) = convert_node(
             node,
-            &style_adapter,
             &asset_resolver,
             options,
             &mut stylesheets,
@@ -41,7 +38,6 @@ pub(crate) fn convert(document: ParsedHtml, options: &FromHtmlOptions) -> Result
 
 fn convert_node(
     node: ParsedNode,
-    style_adapter: &impl StyleAdapter,
     asset_resolver: &AssetResolver<'_>,
     options: &FromHtmlOptions,
     stylesheets: &mut Vec<String>,
@@ -49,7 +45,7 @@ fn convert_node(
 ) -> Result<Option<Node>> {
     match node {
         ParsedNode::Text(text) => {
-            let Some(text) = normalize_text_node(&text, options, text_context) else {
+            let Some(text) = normalize_text_run(&text, options, text_context, false) else {
                 return Ok(None);
             };
             if text.is_empty() {
@@ -60,7 +56,6 @@ fn convert_node(
         }
         ParsedNode::Element(element) => convert_element(
             element,
-            style_adapter,
             asset_resolver,
             options,
             stylesheets,
@@ -71,7 +66,6 @@ fn convert_node(
 
 fn convert_element(
     element: ParsedElement,
-    style_adapter: &impl StyleAdapter,
     asset_resolver: &AssetResolver<'_>,
     options: &FromHtmlOptions,
     stylesheets: &mut Vec<String>,
@@ -113,7 +107,6 @@ fn convert_element(
     if element.tag_name == "head" {
         let _ = convert_children(
             element.children,
-            style_adapter,
             asset_resolver,
             options,
             stylesheets,
@@ -126,7 +119,7 @@ fn convert_element(
         return Ok(None);
     }
 
-    let metadata = ExtractedMetadata::from_element(&element, style_adapter, asset_resolver)?;
+    let metadata = ExtractedMetadata::from_element(&element, asset_resolver)?;
 
     if element.tag_name == "br" {
         return Ok(Some(metadata.apply_to(Node::text("\n"))));
@@ -180,7 +173,6 @@ fn convert_element(
 
     let children = convert_children(
         element.children,
-        style_adapter,
         asset_resolver,
         options,
         stylesheets,
@@ -191,7 +183,6 @@ fn convert_element(
 
 fn convert_children(
     children: Vec<ParsedNode>,
-    style_adapter: &impl StyleAdapter,
     asset_resolver: &AssetResolver<'_>,
     options: &FromHtmlOptions,
     stylesheets: &mut Vec<String>,
@@ -202,7 +193,6 @@ fn convert_children(
     for child in children {
         if let Some(node) = convert_node(
             child,
-            style_adapter,
             asset_resolver,
             options,
             stylesheets,
@@ -352,14 +342,6 @@ fn is_stylesheet_link(element: &ParsedElement) -> bool {
                 .any(|value| value.eq_ignore_ascii_case("stylesheet"))
         })
         .unwrap_or(false)
-}
-
-fn normalize_text_node(
-    text: &str,
-    options: &FromHtmlOptions,
-    text_context: TextContext,
-) -> Option<String> {
-    normalize_text_run(text, options, text_context, false)
 }
 
 fn normalize_text_run(

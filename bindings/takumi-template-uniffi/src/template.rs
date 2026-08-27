@@ -33,19 +33,10 @@ pub(crate) fn absolute_path(path: &Path) -> io::Result<PathBuf> {
 }
 
 
-#[derive(uniffi::Object)]
+#[derive(Default, uniffi::Object)]
 pub struct TemplateEngine {
     search_paths: RwLock<Vec<PathBuf>>,
     registered_templates: RwLock<HashMap<String, String>>,
-}
-
-impl Default for TemplateEngine {
-    fn default() -> Self {
-        Self {
-            search_paths: RwLock::new(Vec::new()),
-            registered_templates: RwLock::new(HashMap::new()),
-        }
-    }
 }
 
 #[uniffi::export]
@@ -97,17 +88,18 @@ impl TemplateEngine {
 
 impl TemplateEngine {
     fn render_request(&self, request: TemplateRequest) -> Result<String> {
-        validate_render_request(&request)?;
+        validate_template_input(&request.input)?;
+        let formatting = FormattingConfig::new(request.syntax_theme.as_deref())?;
 
         let repository = self.template_repository()?;
-        let resolved = resolve_source(&request, &repository)?;
-        let markup = if resolved.requires_jinja() {
+        let resolved = resolve_source(&request, &repository, formatting)?;
+        let markup = if resolved.content_kind.requires_jinja() {
             render_template_markup(&resolved, request.context_json.as_deref(), &repository)?
         } else {
             resolved.source_text.clone()
         };
 
-        if resolved.requires_markdown() {
+        if resolved.content_kind.requires_markdown() {
             render_markdown_to_html(&markup, &resolved.formatting)
         } else {
             Ok(markup)
@@ -156,16 +148,6 @@ pub(crate) struct ResolvedSource {
     pub formatting: FormattingConfig,
 }
 
-impl ResolvedSource {
-    pub(crate) fn requires_jinja(&self) -> bool {
-        self.content_kind.requires_jinja()
-    }
-
-    pub(crate) fn requires_markdown(&self) -> bool {
-        self.content_kind.requires_markdown()
-    }
-}
-
 pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -188,8 +170,8 @@ pub(crate) fn normalize_search_path(path: &str) -> Result<PathBuf> {
 pub(crate) fn resolve_source(
     request: &TemplateRequest,
     repository: &TemplateRepository,
+    formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
-    let formatting = FormattingConfig::new(request.syntax_theme.as_deref())?;
     let search_paths = repository.search_paths.clone();
 
     match &request.input {
@@ -199,7 +181,6 @@ pub(crate) fn resolve_source(
         TemplateInput::File(path) => resolve_file_source(
             path,
             request.content_kind,
-            repository,
             search_paths,
             formatting,
         ),
@@ -222,12 +203,6 @@ pub(crate) fn render_template_markup(
     let environment = build_environment(repository, resolved)?;
     let template = environment.get_template(&resolved.logical_name)?;
     Ok(template.render(context)?)
-}
-
-fn validate_render_request(request: &TemplateRequest) -> Result<()> {
-    validate_template_input(&request.input)?;
-    let _ = FormattingConfig::new(request.syntax_theme.as_deref())?;
-    Ok(())
 }
 
 fn validate_template_input(input: &TemplateInput) -> Result<()> {
@@ -287,7 +262,6 @@ fn resolve_inline_source(
 fn resolve_file_source(
     reference: &str,
     content_kind: TemplateContentKind,
-    _repository: &TemplateRepository,
     search_paths: Vec<PathBuf>,
     formatting: FormattingConfig,
 ) -> Result<ResolvedSource> {
@@ -744,7 +718,12 @@ mod tests {
             syntax_theme: None,
         };
 
-        let resolved = resolve_source(&request, &repository).expect("resolve source");
+        let resolved = resolve_source(
+            &request,
+            &repository,
+            FormattingConfig::new(None).expect("formatting config"),
+        )
+        .expect("resolve source");
         assert_eq!(resolved.logical_name, "cards/profile.jinja");
         assert_eq!(resolved.source_text, "<div>{{ name }}</div>");
     }

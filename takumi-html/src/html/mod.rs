@@ -4,12 +4,10 @@ mod metadata;
 mod options;
 mod parser;
 mod resource;
-mod style;
 
 use std::{fmt, path::PathBuf};
 
 use takumi::prelude::{Node, NodeKind, ImageSourceInput, StyleSheet};
-use takumi_core::error::StyleSheetParseError;
 
 pub use emoji::EmojiType;
 pub use options::{FromHtmlOptions, LocalAssetMode};
@@ -23,90 +21,15 @@ pub struct FromHtmlResult {
 }
 
 impl FromHtmlResult {
-    /// Returns the stylesheet sources extracted from the HTML input.
-    pub fn stylesheet_sources(&self) -> &[String] {
-        &self.stylesheets
-    }
-
-    /// Returns stylesheet sources after prepending extra sources.
-    ///
-    /// Additional sources are placed before styles extracted from the HTML so the
-    /// markup-local `<style>` contents keep later source-order precedence.
-    pub fn stylesheet_sources_with<I, S>(&self, additional: I) -> Vec<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        merge_stylesheet_sources(
-            additional.into_iter().map(Into::into),
-            self.stylesheets.iter().cloned(),
-        )
-    }
-
-    /// Consumes the result and returns the extracted stylesheet sources.
-    pub fn into_stylesheet_sources(self) -> Vec<String> {
-        self.stylesheets
-    }
-
-    /// Consumes the result and returns additional + extracted stylesheet sources.
-    pub fn into_stylesheet_sources_with<I, S>(self, additional: I) -> Vec<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        merge_stylesheet_sources(additional.into_iter().map(Into::into), self.stylesheets)
-    }
-
-    /// Strictly parses the extracted stylesheet sources.
-    pub fn try_stylesheet(&self) -> std::result::Result<StyleSheet, StyleSheetParseError> {
-        StyleSheet::parse_list(self.stylesheet_sources())
-    }
-
-    /// Strictly parses additional + extracted stylesheet sources.
-    pub fn try_stylesheet_with<I, S>(
-        &self,
-        additional: I,
-    ) -> std::result::Result<StyleSheet, StyleSheetParseError>
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        StyleSheet::parse_list(self.stylesheet_sources_with(additional))
-    }
-
     /// Parses the extracted stylesheet sources using Takumi's lossy stylesheet parser.
     pub fn stylesheet(&self) -> StyleSheet {
-        StyleSheet::parse_list_loosy(self.stylesheet_sources())
-    }
-
-    /// Parses additional + extracted stylesheet sources using Takumi's lossy parser.
-    pub fn stylesheet_with<I, S>(&self, additional: I) -> StyleSheet
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        StyleSheet::parse_owned_list_loosy(self.stylesheet_sources_with(additional))
-    }
-
-    /// Consumes the result and parses the extracted stylesheet sources lossily.
-    pub fn into_stylesheet(self) -> StyleSheet {
-        StyleSheet::parse_owned_list_loosy(self.into_stylesheet_sources())
-    }
-
-    /// Consumes the result and parses additional + extracted stylesheet sources lossily.
-    pub fn into_stylesheet_with<I, S>(self, additional: I) -> StyleSheet
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        StyleSheet::parse_owned_list_loosy(self.into_stylesheet_sources_with(additional))
+        StyleSheet::parse_list_loosy(&self.stylesheets)
     }
 
     /// Returns all resource URLs referenced by this result, combining node-level
     /// resources (image `src`, inline style `url(...)`) with stylesheet-level
     /// resources (`url(...)` in extracted `<style>` and linked CSS).
     pub fn resource_urls(&self) -> impl Iterator<Item = &str> {
-        // Collect image URLs (including local paths) and CSS `url(...)` references
         let mut image_urls = Vec::new();
         collect_image_src_urls(&self.node, &mut image_urls);
 
@@ -131,7 +54,7 @@ fn css_resource_urls(stylesheet: &str) -> impl Iterator<Item = &str> {
     let mut cursor = 0;
     std::iter::from_fn(move || {
         while cursor < stylesheet.len() {
-            if let Some((token, end_index)) = parse_css_url_token(stylesheet, cursor) {
+            if let Some((token, end_index)) = resource::parse_css_url(stylesheet, cursor) {
                 cursor = end_index;
                 return Some(token);
             }
@@ -143,52 +66,6 @@ fn css_resource_urls(stylesheet: &str) -> impl Iterator<Item = &str> {
         }
         None
     })
-}
-
-fn parse_css_url_token(source: &str, start: usize) -> Option<(&str, usize)> {
-    let bytes = source.as_bytes();
-    if bytes.get(start..start + 3)?.eq_ignore_ascii_case(b"url") {
-        let mut cursor = start + 3;
-        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-            cursor += 1;
-        }
-        if !matches!(bytes.get(cursor), Some(b'(')) {
-            return None;
-        }
-        cursor += 1;
-        while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-            cursor += 1;
-        }
-        let quote = match bytes.get(cursor) {
-            Some(b'\'') => Some('\''),
-            Some(b'"') => Some('"'),
-            _ => None,
-        };
-        if quote.is_some() {
-            cursor += 1;
-        }
-        let value_start = cursor;
-        while let Some(ch) = source[cursor..].chars().next() {
-            if let Some(quote) = quote {
-                if ch == quote {
-                    let value = &source[value_start..cursor];
-                    cursor += ch.len_utf8();
-                    while matches!(bytes.get(cursor), Some(b' ' | b'\n' | b'\r' | b'\t' | 0x0C)) {
-                        cursor += 1;
-                    }
-                    if matches!(bytes.get(cursor), Some(b')')) {
-                        return Some((value, cursor + 1));
-                    }
-                    return None;
-                }
-            } else if ch == ')' {
-                let value = source[value_start..cursor].trim();
-                return Some((value, cursor + 1));
-            }
-            cursor += ch.len_utf8();
-        }
-    }
-    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,16 +130,6 @@ impl fmt::Display for HtmlError {
 }
 
 impl std::error::Error for HtmlError {}
-
-fn merge_stylesheet_sources<I, J>(additional: I, extracted: J) -> Vec<String>
-where
-    I: IntoIterator<Item = String>,
-    J: IntoIterator<Item = String>,
-{
-    let mut stylesheets = additional.into_iter().collect::<Vec<_>>();
-    stylesheets.extend(extracted);
-    stylesheets
-}
 
 /// Parse HTML using fragment semantics and convert it into a Takumi node tree.
 ///
@@ -352,6 +219,21 @@ mod tests {
     }
 
     #[test]
+    fn finds_css_resource_urls() {
+        let result = FromHtmlResult {
+            node: Node::container([]),
+            stylesheets: vec![
+                r#".card { background: URL( "./图片.png" ); mask: url(icon.svg) }"#.to_string(),
+            ],
+        };
+
+        assert_eq!(
+            result.resource_urls().collect::<Vec<_>>(),
+            vec!["./图片.png", "icon.svg"]
+        );
+    }
+
+    #[test]
     fn extracts_stylesheets() {
         let result = from_html("<style>body { color: red; }</style><div>Ready</div>").unwrap();
 
@@ -393,27 +275,6 @@ mod tests {
             result.node.to_html(),
             r#"<html><body><div class="message">Ready</div></body></html>"#
         );
-    }
-
-    #[test]
-    fn stylesheet_sources_with_preserve_external_then_extracted_order() {
-        let result = from_html("<style>.inline { color: blue; }</style><div>Ready</div>").unwrap();
-
-        let sources = result.stylesheet_sources_with([".external { color: red; }"]);
-        assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0], ".external { color: red; }");
-        assert!(sources[1].contains(".inline"));
-        assert!(sources[1].contains("color: blue"));
-    }
-
-    #[test]
-    fn try_stylesheet_reports_invalid_css() {
-        let result = FromHtmlResult {
-            node: Node::container([]),
-            stylesheets: vec![".broken { color: ".to_string()],
-        };
-
-        assert!(result.try_stylesheet().is_err());
     }
 
     #[test]

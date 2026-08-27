@@ -21,29 +21,32 @@ public sealed class RendererTests
         renderer.AddFontDirectory(Path.GetDirectoryName(FontPath())!);
 
         var html = templateEngine.Render(
-            new TemplateRequest
-            {
-                Input = TemplateInput.Inline(InlineTemplate),
-                ContextJson = "{\"name\":\"Takumi\"}",
-                ContentKind = TemplateContentKind.JinjaHtml,
-            }
+            new TemplateRequest(
+                new TemplateInput.Inline(new InlineTemplateInput(InlineTemplate, null)),
+                "{\"name\":\"Takumi\"}",
+                TemplateContentKind.JinjaHtml,
+                null
+            )
         );
 
         var image = renderer.Render(
-            new RenderRequest
-            {
-                Input = RenderInput.Inline(html),
-                Viewport = new RenderSize(320, 180),
-                Format = ImageFormat.Png,
-            }
+            new RenderRequest(
+                new RenderInput.Inline(html),
+                new RenderSize(320, 180, null),
+                ImageFormat.Png,
+                null,
+                null,
+                null,
+                null
+            )
         );
 
-        Assert.Equal(ImageFormat.Png, image.Format);
-        Assert.Equal("image/png", image.ContentType);
-        Assert.True(image.Width > 0);
-        Assert.True(image.Height > 0);
-        Assert.True(image.Bytes.Length > 8);
-        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image.Bytes.Take(8).ToArray());
+        Assert.Equal(ImageFormat.Png, image.format);
+        Assert.Equal("image/png", image.contentType);
+        Assert.True(image.width > 0);
+        Assert.True(image.height > 0);
+        Assert.True(image.bytes.Length > 8);
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image.bytes.Take(8).ToArray());
     }
 
     [Fact]
@@ -70,26 +73,29 @@ public sealed class RendererTests
         renderer.AddFontDirectory(Path.GetDirectoryName(FontPath())!);
 
         var html = templateEngine.Render(
-            new TemplateRequest
-            {
-                Input = TemplateInput.File("index.jinja"),
-                ContextJson = "{\"name\":\"Takumi\"}",
-                ContentKind = TemplateContentKind.JinjaHtml,
-            }
+            new TemplateRequest(
+                new TemplateInput.File("index.jinja"),
+                "{\"name\":\"Takumi\"}",
+                TemplateContentKind.JinjaHtml,
+                null
+            )
         );
 
         var image = renderer.Render(
-            new RenderRequest
-            {
-                Input = RenderInput.Inline(html),
-                Viewport = new RenderSize(32, 32),
-                Format = ImageFormat.Png,
-            }
+            new RenderRequest(
+                new RenderInput.Inline(html),
+                new RenderSize(32, 32, null),
+                ImageFormat.Png,
+                null,
+                null,
+                null,
+                null
+            )
         );
 
-        Assert.Equal(ImageFormat.Png, image.Format);
-        Assert.Equal("image/png", image.ContentType);
-        Assert.True(image.Bytes.Length > 8);
+        Assert.Equal(ImageFormat.Png, image.format);
+        Assert.Equal("image/png", image.contentType);
+        Assert.True(image.bytes.Length > 8);
     }
 
     [Fact]
@@ -101,28 +107,31 @@ public sealed class RendererTests
 
         var outputPath = Path.Combine(Path.GetTempPath(), $"takumi-render-{Guid.NewGuid():N}.png");
         var html = templateEngine.Render(
-            new TemplateRequest
-            {
-                Input = TemplateInput.Inline(InlineTemplate),
-                ContextJson = "{\"name\":\"Takumi\"}",
-                ContentKind = TemplateContentKind.JinjaHtml,
-            }
+            new TemplateRequest(
+                new TemplateInput.Inline(new InlineTemplateInput(InlineTemplate, null)),
+                "{\"name\":\"Takumi\"}",
+                TemplateContentKind.JinjaHtml,
+                null
+            )
         );
 
         try
         {
             var image = renderer.RenderToFile(
-                new RenderRequest
-                {
-                    Input = RenderInput.Inline(html),
-                    Viewport = new RenderSize(240, 120),
-                    Format = ImageFormat.Png,
-                },
+                new RenderRequest(
+                    new RenderInput.Inline(html),
+                    new RenderSize(240, 120, null),
+                    ImageFormat.Png,
+                    null,
+                    null,
+                    null,
+                    null
+                ),
                 outputPath
             );
 
             Assert.True(File.Exists(outputPath));
-            Assert.Equal((long)image.Bytes.Length, new FileInfo(outputPath).Length);
+            Assert.Equal((long)image.bytes.Length, new FileInfo(outputPath).Length);
         }
         finally
         {

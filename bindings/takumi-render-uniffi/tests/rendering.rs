@@ -255,7 +255,7 @@ html, body { margin: 0; width: 80px; height: 48px; background: white; }
 }
 
 #[test]
-fn svg_image_current_color_is_not_tinted_by_host_color() {
+fn svg_image_current_color_inherits_host_color() {
     let image = render_inline_png(
         r#"<style>
 html, body { margin: 0; width: 24px; height: 24px; background: white; }
@@ -267,7 +267,7 @@ html, body { margin: 0; width: 24px; height: 24px; background: white; }
         24,
         24,
     );
-    assert_eq!(image.get_pixel(8, 8).0, [0, 0, 0, 255]);
+    assert_eq!(image.get_pixel(8, 8).0, [255, 0, 0, 255]);
 }
 
 #[test]

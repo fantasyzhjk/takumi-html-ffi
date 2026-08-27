@@ -5,7 +5,6 @@ use std::{
 use takumi::prelude::ImageSource;
 
 pub(crate) const DEFAULT_IMAGE_CACHE_MAX_ENTRIES: usize = 256;
-pub(crate) const DEFAULT_IMAGE_CACHE_INACTIVE_PASSES: u64 = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileSignature {
@@ -30,6 +29,7 @@ impl FileSignature {
 
     /// Placeholder signature for remote URLs. Matches itself so cached entries
     /// stay valid until LRU eviction.
+    #[cfg(feature = "http")]
     pub(crate) fn remote() -> Self {
         Self {
             len: 0,
@@ -42,16 +42,15 @@ impl FileSignature {
 struct CachedImage {
     signature: FileSignature,
     image: ImageSource,
-    last_used_pass: u64,
+    access_seq: u64,
 }
 
 #[derive(Debug)]
 pub(crate) struct ImageCache {
     entries: HashMap<String, CachedImage>,
     enabled: bool,
-    next_pass: u64,
+    access_seq: u64,
     max_entries: usize,
-    inactive_passes: u64,
 }
 
 impl Default for ImageCache {
@@ -59,9 +58,8 @@ impl Default for ImageCache {
         Self {
             entries: HashMap::new(),
             enabled: true,
-            next_pass: 0,
+            access_seq: 0,
             max_entries: DEFAULT_IMAGE_CACHE_MAX_ENTRIES,
-            inactive_passes: DEFAULT_IMAGE_CACHE_INACTIVE_PASSES,
         }
     }
 }
@@ -82,22 +80,17 @@ impl ImageCache {
         self.enabled = enabled;
     }
 
-    pub(crate) fn next_pass(&mut self) -> u64 {
-        self.next_pass = self.next_pass.saturating_add(1);
-        self.next_pass
-    }
-
-    pub(crate) fn get_auto(
+    pub(crate) fn get(
         &mut self,
         key: &str,
         signature: &FileSignature,
-        pass: u64,
     ) -> Option<ImageSource> {
         let cached = self.entries.get_mut(key)?;
         if &cached.signature != signature {
             return None;
         }
-        cached.last_used_pass = pass;
+        self.access_seq = self.access_seq.saturating_add(1);
+        cached.access_seq = self.access_seq;
         Some(cached.image.clone())
     }
 
@@ -106,38 +99,26 @@ impl ImageCache {
         key: String,
         signature: FileSignature,
         image: ImageSource,
-        pass: u64,
     ) {
+        if self.entries.len() >= self.max_entries && !self.entries.contains_key(&key) {
+            if let Some(oldest_key) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, v)| v.access_seq)
+                .map(|(k, _)| k.clone())
+            {
+                self.entries.remove(&oldest_key);
+            }
+        }
+        self.access_seq = self.access_seq.saturating_add(1);
         self.entries.insert(
             key,
             CachedImage {
                 signature,
                 image,
-                last_used_pass: pass,
+                access_seq: self.access_seq,
             },
         );
-    }
-
-    pub(crate) fn prune(&mut self, pass: u64) -> bool {
-        let before = self.entries.len();
-        let inactive_passes = self.inactive_passes;
-        self.entries
-            .retain(|_, image| pass.saturating_sub(image.last_used_pass) <= inactive_passes);
-
-        if self.entries.len() > self.max_entries {
-            let remove_count = self.entries.len() - self.max_entries;
-            let mut keys_by_age = self
-                .entries
-                .iter()
-                .map(|(key, image)| (key.clone(), image.last_used_pass))
-                .collect::<Vec<_>>();
-            keys_by_age.sort_by_key(|(_, last_used_pass)| *last_used_pass);
-            for (key, _) in keys_by_age.into_iter().take(remove_count) {
-                self.entries.remove(&key);
-            }
-        }
-
-        before != self.entries.len()
     }
 
     pub(crate) fn entry_count(&self) -> usize {

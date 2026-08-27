@@ -13,13 +13,18 @@ repositories {
     mavenCentral()
 }
 
-val pythonCommand = listOf("python3")
+val pythonCommand = if (System.getProperty("os.name").lowercase().contains("win")) {
+    listOf("python")
+} else {
+    listOf("python3")
+}
 
-val generateTakumiBindings by tasks.registering(Exec::class) {
+val generateTakumiBindings = tasks.register<Exec>("generateTakumiBindings") {
     workingDir = projectDir
+    val scriptPath = projectDir.resolve("../../../scripts/prepare_packaged_bindings.py").normalize().absolutePath
     commandLine(
         pythonCommand + listOf(
-            "../scripts/prepare_packaged_bindings.py",
+            scriptPath,
             "--language",
             "kotlin",
             "--project-dir",
@@ -45,7 +50,7 @@ sourceSets {
         resources.srcDir("Generated/Resources")
     }
     test {
-        java.srcDir("src/test/java")
+        kotlin.srcDir("src/test/kotlin")
         resources.srcDir("../../../examples/fonts")
     }
 }

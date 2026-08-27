@@ -13,13 +13,18 @@ repositories {
     mavenCentral()
 }
 
-val pythonCommand = listOf("python3")
+val pythonCommand = if (System.getProperty("os.name").lowercase().contains("win")) {
+    listOf("python")
+} else {
+    listOf("python3")
+}
 
-val generateTakumiBindings by tasks.registering(Exec::class) {
+val generateTakumiBindings = tasks.register<Exec>("generateTakumiBindings") {
     workingDir = projectDir
+    val scriptPath = projectDir.resolve("../../../scripts/prepare_packaged_bindings.py").normalize().absolutePath
     commandLine(
         pythonCommand + listOf(
-            "../scripts/prepare_packaged_bindings.py",
+            scriptPath,
             "--language",
             "kotlin",
             "--project-dir",
@@ -44,11 +49,18 @@ sourceSets {
         kotlin.srcDir("Generated/Kotlin")
         resources.srcDir("Generated/Resources")
     }
+    test {
+        kotlin.srcDir("src/test/kotlin")
+    }
 }
 
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("net.java.dev.jna:jna:5.17.0")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }
 
 tasks.named("compileKotlin") {
@@ -61,6 +73,14 @@ tasks.named("processResources") {
 
 tasks.named("sourcesJar") {
     dependsOn(generateTakumiBindings)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        exceptionFormat = TestExceptionFormat.FULL
+        events("failed", "skipped")
+    }
 }
 
 publishing {

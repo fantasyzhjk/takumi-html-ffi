@@ -126,16 +126,9 @@ impl Renderer {
             .unwrap_or_default()
     }
 
-    #[doc(hidden)]
-    pub fn debug_prune_image_cache(&self) -> Result<()> {
-        let pass = self.next_image_cache_pass()?;
-        self.prune_image_cache(pass)
-    }
-
     fn render_request(&self, request: RenderRequest) -> Result<RenderedImage> {
-        let pass = self.next_image_cache_pass()?;
         let html_result = self.prepare_html_result(&request)?;
-        let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
+        let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
         let fonts = self.fonts.lock().map_err(|_| state_lock_error("fonts"))?;
@@ -165,7 +158,6 @@ impl Renderer {
         )?;
         let bytes = self.encode_image(&image, &request)?;
         drop(fonts);
-        self.prune_image_cache(pass)?;
 
         Ok(RenderedImage {
             bytes,
@@ -177,9 +169,8 @@ impl Renderer {
     }
 
     fn measure_request(&self, request: RenderRequest) -> Result<MeasuredLayout> {
-        let pass = self.next_image_cache_pass()?;
         let html_result = self.prepare_html_result(&request)?;
-        let fetched_resources = self.preload_fetched_resources(&html_result, pass)?;
+        let fetched_resources = self.preload_fetched_resources(&html_result)?;
         let stylesheet = html_result.stylesheet();
         let node = html_result.node;
         let viewport = make_viewport_from_request(&request);
@@ -195,7 +186,6 @@ impl Renderer {
         )?;
         let (width, height) = resolved_layout_size(&measured, request.viewport);
         drop(fonts);
-        self.prune_image_cache(pass)?;
 
         Ok(MeasuredLayout { width, height })
     }
@@ -307,12 +297,11 @@ impl Renderer {
     fn preload_fetched_resources(
         &self,
         html_result: &FromHtmlResult,
-        pass: u64,
     ) -> Result<HashMap<Arc<str>, ImageSource>> {
         let mut fetched_resources = HashMap::new();
 
         for url in html_result.resource_urls() {
-            self.maybe_insert_fetched_resource(&mut fetched_resources, url, pass)?;
+            self.maybe_insert_fetched_resource(&mut fetched_resources, url)?;
         }
 
         Ok(fetched_resources)
@@ -322,19 +311,18 @@ impl Renderer {
         &self,
         fetched_resources: &mut HashMap<Arc<str>, ImageSource>,
         raw_url: &str,
-        pass: u64,
     ) -> Result<()> {
         if fetched_resources.contains_key(raw_url) {
             return Ok(());
         }
 
         if is_local_cached_asset_reference(raw_url) {
-            let image = self.load_cached_image(raw_url, pass)?;
+            let image = self.load_cached_image(raw_url)?;
             fetched_resources.insert(Arc::<str>::from(raw_url), image);
         } else if cfg!(feature = "http") && is_remote_url(raw_url) {
             #[cfg(feature = "http")]
             {
-                let image = self.fetch_remote_image(raw_url, pass)?;
+                let image = self.fetch_remote_image(raw_url)?;
                 fetched_resources.insert(Arc::<str>::from(raw_url), image);
             }
         }
@@ -343,7 +331,7 @@ impl Renderer {
     }
 
     #[cfg(feature = "http")]
-    fn fetch_remote_image(&self, url: &str, pass: u64) -> Result<ImageSource> {
+    fn fetch_remote_image(&self, url: &str) -> Result<ImageSource> {
         let mut cache = self
             .image_cache
             .lock()
@@ -351,7 +339,7 @@ impl Renderer {
 
         if cache.is_enabled() {
             let signature = FileSignature::remote();
-            if let Some(image) = cache.get_auto(url, &signature, pass) {
+            if let Some(image) = cache.get(url, &signature) {
                 return Ok(image);
             }
         }
@@ -372,12 +360,12 @@ impl Renderer {
             .lock()
             .map_err(|_| state_lock_error("image_cache"))?;
         if cache.is_enabled() {
-            cache.insert(url.to_string(), FileSignature::remote(), image.clone(), pass);
+            cache.insert(url.to_string(), FileSignature::remote(), image.clone());
         }
         Ok(image)
     }
 
-    fn load_cached_image(&self, raw_url: &str, pass: u64) -> Result<ImageSource> {
+    fn load_cached_image(&self, raw_url: &str) -> Result<ImageSource> {
         let (path_part, _) = split_reference_suffix(raw_url);
         let normalized = normalize_existing_path(&cached_asset_reference_path(path_part))?;
         let cache_key = normalized.to_string_lossy().replace('\\', "/");
@@ -393,7 +381,7 @@ impl Renderer {
         }
 
         let signature = FileSignature::from_path(&normalized)?;
-        if let Some(image) = cache.get_auto(&cache_key, &signature, pass) {
+        if let Some(image) = cache.get(&cache_key, &signature) {
             return Ok(image);
         }
         drop(cache);
@@ -402,7 +390,7 @@ impl Renderer {
         self.image_cache
             .lock()
             .map_err(|_| state_lock_error("image_cache"))?
-            .insert(cache_key, signature, image.clone(), pass);
+            .insert(cache_key, signature, image.clone());
         Ok(image)
     }
 
@@ -412,25 +400,6 @@ impl Renderer {
             .map_err(|error| RendererError::Render(error.to_string()))
     }
 
-    fn next_image_cache_pass(&self) -> Result<u64> {
-        Ok(self
-            .image_cache
-            .lock()
-            .map_err(|_| state_lock_error("image_cache"))?
-            .next_pass())
-    }
-
-    fn prune_image_cache(&self, pass: u64) -> Result<()> {
-        let mut image_cache = self
-            .image_cache
-            .lock()
-            .map_err(|_| state_lock_error("image_cache"))?;
-        if image_cache.is_enabled() {
-            image_cache.prune(pass);
-        }
-        Ok(())
-    }
-
     fn encode_image(&self, image: &Bitmap, request: &RenderRequest) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         write_image(
@@ -438,7 +407,7 @@ impl Renderer {
             &mut bytes,
             request.format.into_output_format(request.quality),
         )
-        .map_err(|error| RendererError::encode(error.to_string()))?;
+        .map_err(|error| RendererError::Encode(error.to_string()))?;
         Ok(bytes)
     }
 
@@ -885,36 +854,10 @@ mod tests {
             .to_string_lossy()
             .replace('\\', "/");
         fs::remove_file(&image_path).expect("remove source image");
-        let pass = renderer.next_image_cache_pass().expect("next pass");
 
         renderer
-            .load_cached_image(&absolute_reference, pass)
+            .load_cached_image(&absolute_reference)
             .expect_err("disabled cache should not reuse deleted source image");
-    }
-
-    #[test]
-    fn auto_image_cache_prunes_inactive_images() {
-        let temp = tempdir().expect("tempdir");
-        fs::write(temp.path().join("relative.png"), tiny_png_bytes()).expect("write image");
-
-        let renderer = Renderer::default();
-        renderer
-            .add_search_path(temp.path().to_string_lossy().into_owned())
-            .expect("add search path");
-        renderer
-            .render(inline_html_request(
-                r#"<!doctype html><html><body><img src="relative.png" width="1" height="1"></body></html>"#,
-            ))
-            .expect("render local image");
-        assert_eq!(renderer.debug_image_cache_entries(), 1);
-
-        for _ in 0..65 {
-            renderer
-                .debug_prune_image_cache()
-                .expect("prune image cache");
-        }
-
-        assert_eq!(renderer.debug_image_cache_entries(), 0);
     }
 
     #[test]
@@ -1042,7 +985,7 @@ mod tests {
         );
 
         let preloaded = renderer
-            .preload_fetched_resources(&html_result, 1)
+            .preload_fetched_resources(&html_result)
             .expect("preload resources");
         assert!(
             preloaded.contains_key(expected.as_str()),

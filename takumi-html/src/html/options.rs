@@ -18,8 +18,7 @@ pub enum LocalAssetMode {
 pub struct FromHtmlOptions {
     pub base_path: Option<PathBuf>,
     pub load_linked_stylesheets: bool,
-    pub resolve_local_assets: bool,
-    pub local_asset_mode: Option<LocalAssetMode>,
+    pub local_asset_mode: LocalAssetMode,
     pub normalize_whitespace: bool,
     pub emoji_type: Option<EmojiType>,
     pub stylesheet_compiler: Option<StylesheetCompiler>,
@@ -30,7 +29,6 @@ impl fmt::Debug for FromHtmlOptions {
         f.debug_struct("FromHtmlOptions")
             .field("base_path", &self.base_path)
             .field("load_linked_stylesheets", &self.load_linked_stylesheets)
-            .field("resolve_local_assets", &self.resolve_local_assets)
             .field("local_asset_mode", &self.local_asset_mode)
             .field("normalize_whitespace", &self.normalize_whitespace)
             .field("emoji_type", &self.emoji_type)
@@ -58,14 +56,16 @@ impl FromHtmlOptions {
     }
 
     pub fn resolve_local_assets(mut self, enabled: bool) -> Self {
-        self.resolve_local_assets = enabled;
-        self.local_asset_mode = None;
+        self.local_asset_mode = if enabled {
+            LocalAssetMode::InlineDataUri
+        } else {
+            LocalAssetMode::Preserve
+        };
         self
     }
 
     pub fn local_asset_mode(mut self, mode: LocalAssetMode) -> Self {
-        self.resolve_local_assets = matches!(mode, LocalAssetMode::InlineDataUri);
-        self.local_asset_mode = Some(mode);
+        self.local_asset_mode = mode;
         self
     }
 
@@ -82,13 +82,5 @@ impl FromHtmlOptions {
     pub fn stylesheet_compiler(mut self, compiler: StylesheetCompiler) -> Self {
         self.stylesheet_compiler = Some(compiler);
         self
-    }
-
-    pub(crate) fn effective_local_asset_mode(&self) -> LocalAssetMode {
-        self.local_asset_mode.unwrap_or(if self.resolve_local_assets {
-            LocalAssetMode::InlineDataUri
-        } else {
-            LocalAssetMode::Preserve
-        })
     }
 }

@@ -82,7 +82,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install uniffi-bindgen
-        run: cargo install uniffi --version 0.31.1 --features cli
+        run: cargo install --locked --path scripts/uniffi-bindgen --bin uniffi-bindgen
 
       - name: Install uniffi-bindgen-cs
         run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4

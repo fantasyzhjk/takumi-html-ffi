@@ -26,10 +26,6 @@ impl RendererError {
     pub(crate) fn invalid_request(message: impl Into<String>) -> Self {
         Self::InvalidRequest(message.into())
     }
-
-    pub(crate) fn encode(message: impl Into<String>) -> Self {
-        Self::Encode(message.into())
-    }
 }
 
 impl From<io::Error> for RendererError {

@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
-use takumi::prelude::{Direction, Node, Style};
+use takumi::prelude::{Direction, Node, Style, StyleDeclarationBlock};
 
-use super::{Result, parser::ParsedElement, resource::AssetResolver, style::StyleAdapter};
+use super::{HtmlError, Result, parser::ParsedElement, resource::AssetResolver};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ExtractedMetadata {
@@ -12,13 +12,11 @@ pub(crate) struct ExtractedMetadata {
     pub(crate) dir: Option<Direction>,
     pub(crate) attributes: BTreeMap<Box<str>, Box<str>>,
     pub(crate) inline_style: Option<Style>,
-    tailwind_input: Option<String>,
 }
 
 impl ExtractedMetadata {
     pub(crate) fn from_element(
         element: &ParsedElement,
-        style_adapter: &impl StyleAdapter,
         asset_resolver: &AssetResolver<'_>,
     ) -> Result<Self> {
         let class_name = element.attributes.get("class").cloned();
@@ -45,8 +43,7 @@ impl ExtractedMetadata {
             id,
             dir,
             attributes,
-            inline_style: style_adapter.inline_style(&element.tag_name, inline_style_text.as_deref())?,
-            tailwind_input: element.attributes.get("tw").cloned(),
+            inline_style: parse_inline_style(&element.tag_name, inline_style_text.as_deref())?,
         })
     }
 
@@ -75,13 +72,24 @@ impl ExtractedMetadata {
             node = node.with_style(style);
         }
 
-        if let Some(_tailwind_input) = self.tailwind_input.as_deref() {
-            // TODO: Plumb raw `tw` input through a future style adapter once we
-            // decide how the HTML layer should materialize TailwindValues.
-        }
-
         node
     }
+}
+
+fn parse_inline_style(tag_name: &str, style_text: Option<&str>) -> Result<Option<Style>> {
+    let Some(style_text) = style_text.map(str::trim).filter(|style| !style.is_empty()) else {
+        return Ok(None);
+    };
+
+    let declarations = StyleDeclarationBlock::from_str(style_text).map_err(|error| {
+        HtmlError::InlineStyleParse {
+            tag_name: tag_name.to_owned(),
+            value: style_text.to_owned(),
+            reason: error.to_string(),
+        }
+    })?;
+
+    Ok(Some(declarations.into()))
 }
 
 fn is_reserved_attribute(name: &str) -> bool {
