@@ -19,31 +19,22 @@
 渲染时必须加载字体，否则中文及特殊字符无法正确显示。
 
 ```csharp
-// C#
 renderer.AddFontDirectory("/path/to/fonts");   // 递归扫描
 renderer.AddFontFile("/path/to/MyFont.ttf");   // 单个文件
-```
-
-```java
-// Java
-renderer.addFontDirectory("/path/to/fonts");
-renderer.addFontFile("/path/to/MyFont.ttf");
 ```
 
 支持格式：`.ttf` `.otf` `.ttc` `.otc`
 
 ### 资源路径
 
-HTML 中引用本地图片或 CSS 时，需通过搜索路径指定资源目录：
+渲染与模板各自有独立的搜索路径，用途不同：
+
+- `renderer.AddSearchPath()` — 解析 HTML 中的 `<img src>`、`<link href>`、CSS `url()` 等相对路径引用
+- `templateEngine.AddSearchPath()` — 解析 Jinja2 `{% include %}` 指令的模板文件
 
 ```csharp
 renderer.AddSearchPath("/path/to/assets");
 templateEngine.AddSearchPath("/path/to/templates");
-```
-
-```java
-renderer.addSearchPath("/path/to/assets");
-templateEngine.addSearchPath("/path/to/templates");
 ```
 
 ### 模板输入
