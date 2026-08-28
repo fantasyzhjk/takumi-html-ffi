@@ -6,7 +6,7 @@
 
     <groupId>io.github.zhjk.takumi</groupId>
     <artifactId>takumi-render-uniffi-jvm</artifactId>
-    <version>0.2.7</version>
+    <version>0.2.8</version>
     <packaging>jar</packaging>
 
     <name>takumi-render-uniffi-jvm</name>
