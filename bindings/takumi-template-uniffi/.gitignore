@@ -13,6 +13,7 @@ csharp/**/obj/
 jvm/Generated/
 jvm/.gradle/
 jvm/build/
+jvm/target/
 
 /examples/render_score_panel.rs
 /examples/render_score_panel_kanonbot.rs

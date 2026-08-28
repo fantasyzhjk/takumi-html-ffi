@@ -41,12 +41,12 @@ public sealed class RendererTests
             )
         );
 
-        Assert.Equal(ImageFormat.Png, image.format);
-        Assert.Equal("image/png", image.contentType);
-        Assert.True(image.width > 0);
-        Assert.True(image.height > 0);
-        Assert.True(image.bytes.Length > 8);
-        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image.bytes.Take(8).ToArray());
+        Assert.Equal(ImageFormat.Png, image.Format);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.True(image.Width > 0);
+        Assert.True(image.Height > 0);
+        Assert.True(image.Bytes.Length > 8);
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image.Bytes.Take(8).ToArray());
     }
 
     [Fact]
@@ -93,9 +93,9 @@ public sealed class RendererTests
             )
         );
 
-        Assert.Equal(ImageFormat.Png, image.format);
-        Assert.Equal("image/png", image.contentType);
-        Assert.True(image.bytes.Length > 8);
+        Assert.Equal(ImageFormat.Png, image.Format);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.True(image.Bytes.Length > 8);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class RendererTests
             );
 
             Assert.True(File.Exists(outputPath));
-            Assert.Equal((long)image.bytes.Length, new FileInfo(outputPath).Length);
+            Assert.Equal((long)image.Bytes.Length, new FileInfo(outputPath).Length);
         }
         finally
         {

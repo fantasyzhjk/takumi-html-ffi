@@ -3,7 +3,6 @@ members = [
     "takumi-html",
     "bindings/takumi-render-uniffi",
     "bindings/takumi-template-uniffi",
-    "scripts/uniffi-bindgen",
 ]
 default-members = [
     "takumi-html",
@@ -16,7 +15,7 @@ resolver = "3"
 takumi = { version = "2.12.0", features = ["svg-source", "rayon", "raster-backend"] }
 takumi-core = "0.23.0"
 thiserror = "2.0"
-uniffi = "0.29.5"
+uniffi = "0.31.0"
 serde_json = "1"
 tempfile = "3.13"
 

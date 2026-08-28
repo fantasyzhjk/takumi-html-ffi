@@ -67,7 +67,7 @@ jobs:
           path: target/${{ matrix.target }}/release/${{ matrix.lib-name }}
 
   package:
-    name: Package (C# & JVM)
+    name: Package (C# & Java)
     needs: build-native
     runs-on: windows-latest
     steps:
@@ -81,11 +81,11 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install uniffi-bindgen
-        run: cargo install --locked --path scripts/uniffi-bindgen --bin uniffi-bindgen
+      - name: Install uniffi-bindgen-java
+        run: cargo install --locked --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --bin uniffi-bindgen-java
 
       - name: Install uniffi-bindgen-cs
-        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
+        run: cargo install --locked uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.0+v0.31.0
 
       - name: Install .NET
         uses: actions/setup-dotnet@v4
@@ -96,7 +96,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: "22"
 
       - name: Download all native artifacts
         uses: actions/download-artifact@v4
@@ -127,10 +127,8 @@ jobs:
             Copy-Item "native-libs/render-native-$art/*" "target/$triple/release/"
           }
 
-      - name: Build JVM Library
-        run: |
-          python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
-          bindings/takumi-render-uniffi/jvm/gradlew.bat -p bindings/takumi-render-uniffi/jvm jar
+      - name: Build Java Library
+        run: mvn -B -f bindings/takumi-render-uniffi/jvm/pom.xml package
 
       - name: Build C# Library
         run: |
@@ -150,4 +148,4 @@ jobs:
           name: render-packaged-bindings
           path: |
             bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/bin/Release/**/*.nupkg
-            bindings/takumi-render-uniffi/jvm/build/libs/*.jar
+            bindings/takumi-render-uniffi/jvm/target/*.jar

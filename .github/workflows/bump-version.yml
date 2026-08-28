@@ -50,13 +50,13 @@ jobs:
             echo "Updated $f"
           done
 
-      - name: Update build.gradle.kts (JVM)
+      - name: Update pom.xml (Java)
         run: |
           VER="${{ steps.version.outputs.version }}"
           for f in \
-            bindings/takumi-render-uniffi/jvm/build.gradle.kts \
-            bindings/takumi-template-uniffi/jvm/build.gradle.kts; do
-            sed -i "s/^version = \".*\"/version = \"$VER\"/" "$f"
+            bindings/takumi-render-uniffi/jvm/pom.xml \
+            bindings/takumi-template-uniffi/jvm/pom.xml; do
+            sed -i "0,/<version>/s|<version>.*</version>|<version>$VER</version>|" "$f"
             echo "Updated $f"
           done
 

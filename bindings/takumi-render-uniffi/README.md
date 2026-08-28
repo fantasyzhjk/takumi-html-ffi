@@ -12,10 +12,10 @@ cargo test --manifest-path bindings/takumi-render-uniffi/Cargo.toml
 dotnet test bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI.Tests/Takumi.Render.UniFFI.Tests.csproj
 ```
 
-### jvm 测试
+### Java 测试
 
 ```text
-gradle -p bindings/takumi-render-uniffi/jvm test
+mvn -f bindings/takumi-render-uniffi/jvm/pom.xml test
 ```
 
 ## 构建指南
@@ -44,23 +44,19 @@ dotnet build bindings/takumi-render-uniffi/csharp/Takumi.Render.UniFFI/Takumi.Re
 - 直接 `ProjectReference` 到 `Takumi.Render.UniFFI.csproj`
 - 或者把发布后的 `Takumi.Render.UniFFI.dll` 作为普通引用加入项目
 
-### 构建 JVM / Java 库
+### 构建 Java 库
 
-1. 先生成 Kotlin 绑定和 native 资源：
-
-```text
-python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py --language kotlin --project-dir bindings/takumi-render-uniffi/jvm
-```
-
-2. 构建 jar：
+1. 使用 JDK 22+ 构建 jar（Maven 会自动生成 Java binding 和 native 资源）：
 
 ```text
-gradle -p bindings/takumi-render-uniffi/jvm jar
+mvn -f bindings/takumi-render-uniffi/jvm/pom.xml package
 ```
 
-3. 产物位置：
+2. 产物位置：
 
-- `bindings/takumi-render-uniffi/jvm/build/libs/takumi-render-uniffi-jvm-0.1.0.jar`
+- `bindings/takumi-render-uniffi/jvm/target/takumi-render-uniffi-jvm-<version>.jar`
+
+运行 Java 程序时需要添加 `--enable-native-access=ALL-UNNAMED`。
 
 ### 更新 bindings
 
@@ -74,6 +70,6 @@ python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
 
 ```text
 python3 bindings/takumi-render-uniffi/scripts/prepare_packaged_bindings.py \
-  --language kotlin \
+  --language java \
   --project-dir bindings/takumi-render-uniffi/jvm
 ```

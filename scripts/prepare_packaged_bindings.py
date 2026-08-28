@@ -10,7 +10,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
-UNIFFI_BINDGEN_VERSION = "0.29.5"
+JAVA_BINDGEN_VERSION = "0.4.2"
+JAVA_BINDGEN_REPOSITORY = "https://github.com/IronCoreLabs/uniffi-bindgen-java"
+CS_BINDGEN_VERSION = "0.11.0+v0.31.0"
+CS_BINDGEN_REPOSITORY = "https://github.com/NordSecurity/uniffi-bindgen-cs"
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
@@ -44,27 +47,6 @@ def tool_binary_path(tool_root: Path, binary_name: str) -> Path:
     return tool_root / "bin" / f"{binary_name}{suffix}"
 
 
-def ensure_local_uniffi_bindgen(crate_dir: Path, version: str = UNIFFI_BINDGEN_VERSION) -> str:
-    tool_root = crate_dir / ".tools" / f"uniffi-bindgen-{version}"
-    binary_path = tool_binary_path(tool_root, "uniffi-bindgen")
-    if not binary_path.exists():
-        tool_project = Path(__file__).resolve().parent / "uniffi-bindgen"
-        run(
-            [
-                "cargo",
-                "install",
-                "--locked",
-                "--root",
-                str(tool_root),
-                "--path",
-                str(tool_project),
-                "--bin",
-                "uniffi-bindgen",
-            ]
-        )
-    return str(binary_path)
-
-
 def command_version(command: str) -> str | None:
     try:
         result = subprocess.run(
@@ -81,14 +63,45 @@ def command_version(command: str) -> str | None:
     return output.split()[-1] if output else None
 
 
-def locate_uniffi_bindgen(crate_dir: Path) -> str:
+def ensure_local_bindgen(
+    crate_dir: Path,
+    binary_name: str,
+    version: str,
+    repository: str,
+    tag: str,
+) -> str:
+    tool_root = crate_dir / ".tools" / f"{binary_name}-{version}"
+    binary_path = tool_binary_path(tool_root, binary_name)
+    if not binary_path.exists():
+        run(
+            [
+                "cargo",
+                "install",
+                "--locked",
+                "--git",
+                repository,
+                "--tag",
+                tag,
+                "--root",
+                str(tool_root),
+                "--bin",
+                binary_name,
+            ]
+        )
+    return str(binary_path)
+
+
+def locate_versioned_bindgen(
+    crate_dir: Path,
+    binary_name: str,
+    version: str,
+    repository: str,
+    tag: str,
+) -> str:
     candidates: tuple[str | Path, ...] = (
-        tool_binary_path(
-            crate_dir / ".tools" / f"uniffi-bindgen-{UNIFFI_BINDGEN_VERSION}",
-            "uniffi-bindgen",
-        ),
-        tool_binary_path(Path.home() / ".cargo", "uniffi-bindgen"),
-        "uniffi-bindgen",
+        tool_binary_path(crate_dir / ".tools" / f"{binary_name}-{version}", binary_name),
+        tool_binary_path(Path.home() / ".cargo", binary_name),
+        binary_name,
     )
 
     for candidate in candidates:
@@ -96,18 +109,15 @@ def locate_uniffi_bindgen(crate_dir: Path) -> str:
             command = locate_command(candidate)
         except RuntimeError:
             continue
-        if command_version(command) == UNIFFI_BINDGEN_VERSION:
+        if command_version(command) == version:
             return command
-        print(
-            f"[DEBUG] Ignoring UniFFI bindgen with unexpected version: {command}",
-            flush=True,
-        )
+        print(f"[DEBUG] Ignoring {binary_name} with unexpected version: {command}", flush=True)
 
-    command = ensure_local_uniffi_bindgen(crate_dir)
+    command = ensure_local_bindgen(crate_dir, binary_name, version, repository, tag)
     actual_version = command_version(command)
-    if actual_version != UNIFFI_BINDGEN_VERSION:
+    if actual_version != version:
         raise RuntimeError(
-            f"Expected uniffi-bindgen {UNIFFI_BINDGEN_VERSION}, found {actual_version or 'unknown'}"
+            f"Expected {binary_name} {version}, found {actual_version or 'unknown'}"
         )
     return command
 
@@ -297,25 +307,32 @@ def prepare_csharp(crate_dir: Path, project_dir: Path) -> None:
     native_library = find_host_native_library(target_dir, lib_name)
 
     clean_dir(scratch_dir)
-    bindgen_cs = locate_command(Path.home() / ".cargo/bin/uniffi-bindgen-cs", "uniffi-bindgen-cs")
+    bindgen_cs = locate_versioned_bindgen(
+        crate_dir,
+        "uniffi-bindgen-cs",
+        CS_BINDGEN_VERSION,
+        CS_BINDGEN_REPOSITORY,
+        f"v{CS_BINDGEN_VERSION}",
+    )
     run(
         [
             bindgen_cs,
             "--no-format",
             "--library",
-            str(native_library),
             "--config",
             str(config_path),
             "--out-dir",
             str(scratch_dir),
+            str(native_library),
         ]
     )
 
-    generated_component = scratch_dir / f"{lib_name}.cs"
-    if not generated_component.exists():
+    generated_components = tuple(scratch_dir.glob("*.cs"))
+    if len(generated_components) != 1:
         raise FileNotFoundError(
-            f"Expected generated C# component file at {generated_component}, but it was not created"
+            f"Expected one generated C# component file under {scratch_dir}, found {len(generated_components)}"
         )
+    generated_component = generated_components[0]
 
     pascal_name = "".join(part.capitalize() for part in lib_name.split("_"))
     clean_dir(generated_bindings_dir)
@@ -323,44 +340,47 @@ def prepare_csharp(crate_dir: Path, project_dir: Path) -> None:
     stage_native_artifacts(target_dir, lib_name, generated_native_dir)
 
 
-def prepare_kotlin(crate_dir: Path, project_dir: Path) -> None:
+def prepare_java(crate_dir: Path, project_dir: Path) -> None:
     manifest_path = crate_dir / "Cargo.toml"
     config_path = crate_dir / "uniffi.toml"
     lib_name = get_cdylib_name(crate_dir)
-    generated_sources_dir = project_dir / "Generated" / "Kotlin"
+    generated_sources_dir = project_dir / "Generated" / "Java"
     generated_resources_dir = project_dir / "Generated" / "Resources" / "native"
-    scratch_dir = project_dir / "build" / "uniffi-bindgen" / "kotlin"
+    scratch_dir = project_dir / "build" / "uniffi-bindgen" / "java"
 
     build_release(manifest_path)
     target_dir = cargo_target_dir(manifest_path)
     native_library = find_host_native_library(target_dir, lib_name)
 
     clean_dir(scratch_dir)
-    uniffi_bindgen = locate_uniffi_bindgen(crate_dir)
+    uniffi_bindgen = locate_versioned_bindgen(
+        crate_dir,
+        "uniffi-bindgen-java",
+        JAVA_BINDGEN_VERSION,
+        JAVA_BINDGEN_REPOSITORY,
+        JAVA_BINDGEN_VERSION,
+    )
     run(
         [
             uniffi_bindgen,
             "generate",
             "--no-format",
-            "--library",
-            str(native_library),
-            "--language",
-            "kotlin",
             "--config",
             str(config_path),
             "--out-dir",
             str(scratch_dir),
+            str(native_library),
         ]
     )
 
-    copy_matching_files(scratch_dir, generated_sources_dir, ".kt")
+    copy_matching_files(scratch_dir, generated_sources_dir, ".java")
     stage_native_artifacts(target_dir, lib_name, generated_resources_dir)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare packaged UniFFI bindings and native resources.")
-    parser.add_argument("--language", required=True, choices=("csharp", "kotlin"))
-    parser.add_argument("--project-dir", required=True, help="Target project directory (C# or Kotlin)")
+    parser.add_argument("--language", required=True, choices=("csharp", "java"))
+    parser.add_argument("--project-dir", required=True, help="Target project directory (C# or Java)")
     parser.add_argument("--crate-dir", default=None, help="Optional crate directory (defaults to auto-detected parent)")
     return parser.parse_args()
 
@@ -373,8 +393,8 @@ def main() -> int:
 
     if args.language == "csharp":
         prepare_csharp(crate_dir, project_dir)
-    elif args.language == "kotlin":
-        prepare_kotlin(crate_dir, project_dir)
+    elif args.language == "java":
+        prepare_java(crate_dir, project_dir)
     else:
         raise RuntimeError(f"Unsupported language: {args.language}")
 

@@ -3,6 +3,6 @@ namespace = "Takumi.Template.UniFFI"
 cdylib_name = "takumi_template_uniffi"
 access_modifier = "public"
 
-[bindings.kotlin]
+[bindings.java]
 package_name = "io.github.zhjk.takumi.template.uniffi"
 cdylib_name = "takumi_template_uniffi"
