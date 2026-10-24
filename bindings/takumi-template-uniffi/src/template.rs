@@ -6,6 +6,7 @@ use std::{
     io
 };
 
+use minijinja::value::Serde;
 use minijinja::Value as JinjaValue;
 use minijinja::{AutoEscape, Environment, Error, ErrorKind};
 use serde_json::Value;
@@ -202,7 +203,7 @@ pub(crate) fn render_template_markup(
     let context = parse_context_json(context_json)?;
     let environment = build_environment(repository, resolved)?;
     let template = environment.get_template(&resolved.logical_name)?;
-    Ok(template.render(context)?)
+    Ok(template.render(Serde(&context))?)
 }
 
 fn validate_template_input(input: &TemplateInput) -> Result<()> {
