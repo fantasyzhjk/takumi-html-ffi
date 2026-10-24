@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "takumi-render-uniffi"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "grass",
  "image",
@@ -3122,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "takumi-template-uniffi"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "chrono",
  "comrak",
